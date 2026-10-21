@@ -6,7 +6,7 @@ use crate::game::{Game, MILESTONE_FLASH, REX_X, State};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
 use crate::rex::{Pose, Rex};
-use crate::sprites::{self, Legs};
+use crate::sprites::{self, Legs, Sprite};
 use crate::view;
 
 /// Screen y of the ground line, in playfield units.
@@ -108,7 +108,7 @@ fn clouds(area: view::Rect, distance: f32, c: &Colors) {
             slot as f32 * CLOUD_SLOT - scrolled + (seed >> 4) as f32 % (CLOUD_SLOT - CLOUD_SIZE.0);
         let y = 70.0 + ((seed >> 12) % 80) as f32;
         let (w, h) = CLOUD_SIZE;
-        sprite(sprites::CLOUD, x, y, w, h, c.faint, c.bg);
+        sprite(&sprites::sheet().cloud, x, y, w, h, c.faint, c.bg);
     }
 }
 
@@ -147,32 +147,34 @@ fn obstacle(o: &Obstacle, c: &Colors) {
     let y = top(o.bottom, h);
     match o.kind {
         Kind::SmallCactus(n) | Kind::LargeCactus(n) => {
-            let grid = if matches!(o.kind, Kind::SmallCactus(_)) {
-                sprites::SMALL_CACTUS
+            let sheet = sprites::sheet();
+            let art = if matches!(o.kind, Kind::SmallCactus(_)) {
+                &sheet.small_cactus
             } else {
-                sprites::LARGE_CACTUS
+                &sheet.large_cactus
             };
             let each = w / n as f32;
             for i in 0..n {
-                sprite(grid, o.x + i as f32 * each, y, each, h, c.fg, c.bg);
+                sprite(art, o.x + i as f32 * each, y, each, h, c.fg, c.bg);
             }
         }
         Kind::Pterodactyl => {
-            let grid = if o.wings_up() {
-                sprites::PTERODACTYL_WINGS_UP
+            let sheet = sprites::sheet();
+            let art = if o.wings_up() {
+                &sheet.pterodactyl_wings_up
             } else {
-                sprites::PTERODACTYL_WINGS_DOWN
+                &sheet.pterodactyl_wings_down
             };
-            sprite(grid, o.x, y, w, h, c.fg, c.bg);
+            sprite(art, o.x, y, w, h, c.fg, c.bg);
         }
     }
 }
 
 /// Stretches a pixel grid over a w x h box with its top-left at (x, y).
-fn sprite(rows: &[&str], x: f32, y: f32, w: f32, h: f32, fill: Color, eye: Color) {
-    let px = w / rows[0].len() as f32;
-    let py = h / rows.len() as f32;
-    for run in sprites::runs(rows) {
+fn sprite(art: &Sprite, x: f32, y: f32, w: f32, h: f32, fill: Color, eye: Color) {
+    let px = w / art.cols as f32;
+    let py = h / art.rows as f32;
+    for run in &art.runs {
         draw_rectangle(
             x + run.x as f32 * px,
             y + run.y as f32 * py,
@@ -228,10 +230,10 @@ fn rex(rex: &Rex, state: State, c: &Colors) {
         _ if rex.back_leg_up => Legs::BackUp,
         _ => Legs::FrontUp,
     };
-    let rows = sprites::rex(
+    let art = sprites::sheet().rex(
         rex.pose == Pose::Ducking,
         matches!(state, State::Over(_)),
         legs,
     );
-    sprite(&rows, REX_X, top(rex.height, h), w, h, c.accent, c.bg);
+    sprite(art, REX_X, top(rex.height, h), w, h, c.accent, c.bg);
 }

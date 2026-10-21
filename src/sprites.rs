@@ -5,6 +5,8 @@
 //! grids only need roughly the right proportions. Keeping the art as data
 //! means its shape can be tested without a window.
 
+use std::sync::OnceLock;
+
 pub type Grid = &'static [&'static str];
 
 const REX_HEAD: Grid = &[
@@ -268,7 +270,8 @@ pub struct Run {
 pub fn runs(rows: &[&str]) -> Vec<Run> {
     let mut out = Vec::new();
     for (y, row) in rows.iter().enumerate() {
-        let cells: Vec<char> = row.chars().collect();
+        // Grids are plain ASCII, so bytes index the cells directly.
+        let cells = row.as_bytes();
         let mut x = 0;
         while x < cells.len() {
             let c = cells[x];
@@ -276,17 +279,86 @@ pub fn runs(rows: &[&str]) -> Vec<Run> {
             while x < cells.len() && cells[x] == c {
                 x += 1;
             }
-            if c != '.' {
+            if c != b'.' {
                 out.push(Run {
                     x: start,
                     y,
                     len: x - start,
-                    eye: c == 'o',
+                    eye: c == b'o',
                 });
             }
         }
     }
     out
+}
+
+/// A grid already split into runs, ready to draw.
+#[derive(Debug)]
+pub struct Sprite {
+    pub cols: usize,
+    pub rows: usize,
+    pub runs: Vec<Run>,
+}
+
+impl Sprite {
+    fn new(rows: &[&str]) -> Self {
+        Self {
+            cols: rows[0].len(),
+            rows: rows.len(),
+            runs: runs(rows),
+        }
+    }
+}
+
+/// Every sprite the game draws. The art never changes, so it is split into
+/// runs once instead of every frame.
+#[derive(Debug)]
+pub struct Sheet {
+    /// Indexed by `rex_index`.
+    rex: Vec<Sprite>,
+    pub small_cactus: Sprite,
+    pub large_cactus: Sprite,
+    pub pterodactyl_wings_up: Sprite,
+    pub pterodactyl_wings_down: Sprite,
+    pub cloud: Sprite,
+}
+
+const LEGS: [Legs; 3] = [Legs::Down, Legs::BackUp, Legs::FrontUp];
+
+fn rex_index(ducking: bool, crashed: bool, legs: Legs) -> usize {
+    let legs = LEGS.iter().position(|&l| l == legs).unwrap_or(0);
+    usize::from(ducking) * 6 + usize::from(crashed) * 3 + legs
+}
+
+impl Sheet {
+    fn build() -> Self {
+        let mut rex = Vec::new();
+        for ducking in [false, true] {
+            for crashed in [false, true] {
+                for legs in LEGS {
+                    debug_assert_eq!(rex.len(), rex_index(ducking, crashed, legs));
+                    rex.push(Sprite::new(&self::rex(ducking, crashed, legs)));
+                }
+            }
+        }
+        Self {
+            rex,
+            small_cactus: Sprite::new(SMALL_CACTUS),
+            large_cactus: Sprite::new(LARGE_CACTUS),
+            pterodactyl_wings_up: Sprite::new(PTERODACTYL_WINGS_UP),
+            pterodactyl_wings_down: Sprite::new(PTERODACTYL_WINGS_DOWN),
+            cloud: Sprite::new(CLOUD),
+        }
+    }
+
+    pub fn rex(&self, ducking: bool, crashed: bool, legs: Legs) -> &Sprite {
+        &self.rex[rex_index(ducking, crashed, legs)]
+    }
+}
+
+pub fn sheet() -> &'static Sheet {
+    static SHEET: OnceLock<Sheet> = OnceLock::new();
+    SHEET.get_or_init(Sheet::build)
 }
 
 #[cfg(test)]
@@ -388,6 +460,18 @@ mod tests {
         let crashed = runs(&rex(false, true, Legs::Down));
         let eye = |r: &[Run]| r.iter().filter(|r| r.eye).map(|r| r.len).sum::<usize>();
         assert!(eye(&crashed) > eye(&normal));
+    }
+
+    #[test]
+    fn the_sheet_holds_each_rex_variant() {
+        for ducking in [false, true] {
+            for crashed in [false, true] {
+                for legs in LEGS {
+                    let sprite = sheet().rex(ducking, crashed, legs);
+                    assert_eq!(sprite.runs, runs(&rex(ducking, crashed, legs)));
+                }
+            }
+        }
     }
 
     #[test]
