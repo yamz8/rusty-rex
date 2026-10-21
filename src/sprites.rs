@@ -208,6 +208,17 @@ pub const PTERODACTYL_WINGS_DOWN: Grid = &[
     ".......................",
 ];
 
+/// An outline, like Chrome's clouds, so it reads as far away.
+pub const CLOUD: Grid = &[
+    "..........#####........",
+    ".......####...###......",
+    "......##.......####....",
+    "..####............##...",
+    ".##................###.",
+    "#.....................#",
+    "#######################",
+];
+
 /// Which way the rex's legs are drawn this frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Legs {
@@ -312,6 +323,7 @@ mod tests {
             LARGE_CACTUS,
             PTERODACTYL_WINGS_UP,
             PTERODACTYL_WINGS_DOWN,
+            CLOUD,
         ] {
             assert_rectangular(grid);
         }

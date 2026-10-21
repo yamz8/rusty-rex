@@ -14,6 +14,12 @@ pub const GROUND_Y: f32 = 260.0;
 /// The ground pebbles repeat on this spacing; each slot may hold one pebble.
 const PEBBLE_SLOT: f32 = 37.0;
 const STAR_COUNT: i64 = 12;
+/// Clouds drift past at this fraction of the ground's speed, so they look
+/// far away; Chrome uses the same ratio.
+const CLOUD_PARALLAX: f32 = 0.2;
+/// Each slot this wide may hold one cloud.
+const CLOUD_SLOT: f32 = 260.0;
+const CLOUD_SIZE: (f32, f32) = (46.0, 14.0);
 
 /// The frame's colours, converted once for macroquad.
 struct Colors {
@@ -27,7 +33,7 @@ fn color(c: Rgb) -> Color {
     Color::new(c.r, c.g, c.b, 1.0)
 }
 
-pub fn frame(game: &Game, day: Palette) {
+pub fn frame(game: &Game, day: Palette, muted: bool) {
     let p = day.at_night(game.night);
     let c = Colors {
         bg: color(p.background),
@@ -47,6 +53,7 @@ pub fn frame(game: &Game, day: Palette) {
     if game.night > 0.0 {
         sky(area, game.night, &c);
     }
+    clouds(area, game.distance, &c);
     ground(area, game.distance, &c);
     for o in &game.obstacles {
         obstacle(o, &c);
@@ -54,8 +61,16 @@ pub fn frame(game: &Game, day: Palette) {
     rex(&game.rex, game.state, &c);
     score(game, &c);
 
+    if muted {
+        draw_text("MUTED", 20.0, 40.0, 18.0, c.faint);
+    }
+
     match game.state {
         State::Waiting => centred_text("Press Space to start", 150.0, 24.0, c.fg),
+        State::Paused => {
+            centred_text("P A U S E D", 130.0, 32.0, c.fg);
+            centred_text("Press P to carry on", 165.0, 20.0, c.fg);
+        }
         State::Over(_) => {
             centred_text("G A M E   O V E R", 130.0, 32.0, c.fg);
             centred_text("Press Space to play again", 165.0, 20.0, c.fg);
@@ -77,6 +92,24 @@ fn sky(area: view::Rect, night: f32, c: &Colors) {
     draw_circle(moon_x, moon_y, r, fade(c.fg));
     // Covering part of the full moon with the sky colour leaves a crescent.
     draw_circle(moon_x + 8.0, moon_y - 3.0, r, c.bg);
+}
+
+fn clouds(area: view::Rect, distance: f32, c: &Colors) {
+    let scrolled = distance * CLOUD_PARALLAX;
+    let first = ((area.x + scrolled) / CLOUD_SLOT).floor() as i64 - 1;
+    let last = ((area.x + area.w + scrolled) / CLOUD_SLOT).ceil() as i64;
+    for slot in first..=last {
+        // Offset the hash input so clouds don't line up with the pebbles.
+        let seed = hash(slot + 5000);
+        if seed.is_multiple_of(3) {
+            continue;
+        }
+        let x =
+            slot as f32 * CLOUD_SLOT - scrolled + (seed >> 4) as f32 % (CLOUD_SLOT - CLOUD_SIZE.0);
+        let y = 70.0 + ((seed >> 12) % 80) as f32;
+        let (w, h) = CLOUD_SIZE;
+        sprite(sprites::CLOUD, x, y, w, h, c.faint, c.bg);
+    }
 }
 
 fn score(game: &Game, c: &Colors) {

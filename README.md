@@ -7,6 +7,7 @@ The offline dinosaur runner from Chrome, rebuilt in Rust with
 
 - **Space** or **Up** jumps; hold it for a higher jump, tap it for a hop.
 - **Down** ducks under pterodactyls, or drops you faster mid-jump.
+- **P** pauses, **M** mutes the sound.
 - The high score is kept in `~/.local/share/rusty-rex`.
 - Colours follow your Omarchy theme and change when you switch themes.
 

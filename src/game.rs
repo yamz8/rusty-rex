@@ -59,6 +59,8 @@ pub enum State {
     /// Before the first jump, as in Chrome.
     Waiting,
     Running,
+    /// Frozen mid-run until the player resumes.
+    Paused,
     /// Crashed; holds the seconds since the crash.
     Over(f32),
 }
@@ -119,6 +121,7 @@ impl Game {
                 }
             }
             State::Running => self.run(dt, input),
+            State::Paused => {}
             State::Over(since) => {
                 let since = since + dt;
                 self.state = State::Over(since);
@@ -127,6 +130,16 @@ impl Game {
                 }
             }
         }
+    }
+
+    /// Pauses a run or resumes a paused one. Does nothing before the run
+    /// starts or after a crash, where there is nothing to freeze.
+    pub fn toggle_pause(&mut self) {
+        self.state = match self.state {
+            State::Running => State::Paused,
+            State::Paused => State::Running,
+            other => other,
+        };
     }
 
     pub fn score(&self) -> u32 {
@@ -453,6 +466,35 @@ mod tests {
         game.events.clear();
         play(&mut game, |_| NONE);
         assert_eq!(game.events, vec![Event::Crash]);
+    }
+
+    #[test]
+    fn pausing_freezes_the_run_until_resumed() {
+        let mut game = course(Obstacle::new(Kind::LargeCactus(1), 300.0, 0.0));
+        game.toggle_pause();
+        assert_eq!(game.state, State::Paused);
+        let (distance, x) = (game.distance, game.obstacles[0].x);
+        run(&mut game, 2.0, JUMP);
+        assert_eq!(game.distance, distance);
+        assert_eq!(game.obstacles[0].x, x);
+        assert_eq!(game.rex.pose, Pose::Running);
+
+        game.toggle_pause();
+        assert_eq!(game.state, State::Running);
+        game.update(DT, NONE);
+        assert!(game.distance > distance);
+    }
+
+    #[test]
+    fn only_a_running_game_can_pause() {
+        let mut game = Game::new(1);
+        game.toggle_pause();
+        assert_eq!(game.state, State::Waiting);
+
+        let mut game = course(Obstacle::new(Kind::LargeCactus(1), REX_X, 0.0));
+        game.update(DT, NONE);
+        game.toggle_pause();
+        assert!(matches!(game.state, State::Over(_)));
     }
 
     #[test]

@@ -6,3 +6,5 @@
 - [x] Score and high score (saved in ~/.local/share/rusty-rex)
 - [x] Day/night flip, sounds
 - [x] Follow the Omarchy theme colours
+- [x] Clouds drifting past at a fifth of the ground speed
+- [x] Pause (P) and mute (M)

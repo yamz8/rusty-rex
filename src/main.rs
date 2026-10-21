@@ -128,14 +128,22 @@ async fn main() {
         eprintln!("rusty-rex: couldn't load sounds, playing silent");
     }
     let mut theme = Theme::new();
+    // Muting lasts until the game closes.
+    let mut muted = false;
     let mut clock = Clock::default();
     loop {
         let input = read_input();
+        if is_key_pressed(KeyCode::P) {
+            game.toggle_pause();
+        }
+        if is_key_pressed(KeyCode::M) {
+            muted = !muted;
+        }
         for _ in 0..clock.advance(get_frame_time()) {
             game.update(TICK, input);
         }
         for event in game.events.drain(..) {
-            if let Some(sounds) = &sounds {
+            if let Some(sounds) = sounds.as_ref().filter(|_| !muted) {
                 sounds.play(event);
             }
         }
@@ -152,7 +160,7 @@ async fn main() {
             }
         }
         theme.refresh(get_time());
-        draw::frame(&game, theme.palette);
+        draw::frame(&game, theme.palette, muted);
         next_frame().await;
     }
 }
