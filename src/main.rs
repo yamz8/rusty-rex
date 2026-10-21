@@ -1,9 +1,11 @@
 mod clock;
 mod rex;
+mod view;
 
 use clock::{Clock, TICK};
 use macroquad::prelude::*;
 use rex::{Input, Pose, Rex};
+use view::{PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
 
 const GROUND_Y: f32 = 260.0;
 const REX_X: f32 = 60.0;
@@ -11,8 +13,8 @@ const REX_X: f32 = 60.0;
 fn window_conf() -> Conf {
     Conf {
         window_title: "Rusty Rex".to_owned(),
-        window_width: 960,
-        window_height: 320,
+        window_width: PLAYFIELD_WIDTH as i32,
+        window_height: PLAYFIELD_HEIGHT as i32,
         ..Default::default()
     }
 }
@@ -56,12 +58,18 @@ async fn main() {
         }
 
         clear_background(WHITE);
+        let area = view::visible_area(screen_width(), screen_height());
+        let mut camera = Camera2D::from_display_rect(Rect::new(area.x, area.y, area.w, area.h));
+        // from_display_rect flips y for render targets, which turns the scene
+        // upside down when drawing straight to the window, so flip it back.
+        camera.zoom.y = -camera.zoom.y;
+        set_camera(&camera);
         // Lines are centred on their y, so shifting down by half the thickness
         // keeps the ground under the rex's feet instead of over them.
         draw_line(
-            0.0,
+            area.x,
             GROUND_Y + 1.0,
-            screen_width(),
+            area.x + area.w,
             GROUND_Y + 1.0,
             2.0,
             DARKGRAY,
