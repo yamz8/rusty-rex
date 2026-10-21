@@ -6,14 +6,20 @@ mod palette;
 mod rex;
 mod sound;
 mod storage;
+mod theme;
 mod view;
 
 use clock::{Clock, TICK};
 use game::{Event, Game};
 use macroquad::audio::{Sound, load_sound_from_bytes, play_sound_once};
 use macroquad::prelude::*;
+use palette::Palette;
 use rex::Input;
+use std::path::PathBuf;
 use view::{PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
+
+/// How often to check whether the Omarchy theme changed.
+const THEME_CHECK_SECONDS: f64 = 1.0;
 
 fn window_conf() -> Conf {
     Conf {
@@ -60,6 +66,50 @@ impl Sounds {
     }
 }
 
+/// Follows the Omarchy theme, falling back to Chrome's colours when there is
+/// no theme file (or it can't be read), so the game also runs outside Omarchy.
+struct Theme {
+    path: Option<PathBuf>,
+    /// The file's last contents, so an unchanged theme isn't parsed again.
+    text: Option<String>,
+    palette: Palette,
+    checked_at: f64,
+}
+
+impl Theme {
+    fn new() -> Self {
+        let mut theme = Self {
+            path: theme::colors_path(std::env::var_os("HOME")),
+            text: None,
+            palette: palette::CHROME,
+            checked_at: f64::NEG_INFINITY,
+        };
+        theme.refresh(0.0);
+        theme
+    }
+
+    /// Rereads the file at most once every THEME_CHECK_SECONDS. Reading a
+    /// small file is cheaper and more reliable than watching modification
+    /// times, since Omarchy may swap the whole theme directory.
+    fn refresh(&mut self, now: f64) {
+        if now - self.checked_at < THEME_CHECK_SECONDS {
+            return;
+        }
+        self.checked_at = now;
+        let text = self
+            .path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        if text != self.text {
+            self.palette = text
+                .as_deref()
+                .and_then(theme::parse)
+                .unwrap_or(palette::CHROME);
+            self.text = text;
+        }
+    }
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
     // Any changing seed will do; it only decides the order of obstacles.
@@ -76,6 +126,7 @@ async fn main() {
     if sounds.is_none() {
         eprintln!("rusty-rex: couldn't load sounds, playing silent");
     }
+    let mut theme = Theme::new();
     let mut clock = Clock::default();
     loop {
         let input = read_input();
@@ -99,7 +150,8 @@ async fn main() {
                 );
             }
         }
-        draw::frame(&game, palette::CHROME);
+        theme.refresh(get_time());
+        draw::frame(&game, theme.palette);
         next_frame().await;
     }
 }

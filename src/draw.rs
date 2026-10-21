@@ -19,6 +19,7 @@ struct Colors {
     bg: Color,
     fg: Color,
     faint: Color,
+    accent: Color,
 }
 
 fn color(c: Rgb) -> Color {
@@ -31,6 +32,7 @@ pub fn frame(game: &Game, day: Palette) {
         bg: color(p.background),
         fg: color(p.foreground),
         faint: color(p.faint),
+        accent: color(p.accent),
     };
 
     clear_background(c.bg);
@@ -202,7 +204,7 @@ fn rex(rex: &Rex, state: State, c: &Colors) {
     let leg_h = 8.0;
     let body_h = h - leg_h;
 
-    draw_rectangle(x, top, w, body_h, c.fg);
+    draw_rectangle(x, top, w, body_h, c.accent);
     // A crashed rex gets Chrome's wide-eyed look.
     let eye = if matches!(state, State::Over(_)) {
         7.0
@@ -218,6 +220,6 @@ fn rex(rex: &Rex, state: State, c: &Colors) {
     };
     let legs_top = top + body_h;
     let lift = |up: bool| if up { 4.0 } else { 0.0 };
-    draw_rectangle(x + 8.0, legs_top, 6.0, leg_h - lift(back_up), c.fg);
-    draw_rectangle(x + 22.0, legs_top, 6.0, leg_h - lift(front_up), c.fg);
+    draw_rectangle(x + 8.0, legs_top, 6.0, leg_h - lift(back_up), c.accent);
+    draw_rectangle(x + 22.0, legs_top, 6.0, leg_h - lift(front_up), c.accent);
 }

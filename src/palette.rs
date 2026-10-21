@@ -24,7 +24,7 @@ impl Rgb {
         }
     }
 
-    fn lerp(self, other: Self, t: f32) -> Self {
+    pub fn lerp(self, other: Self, t: f32) -> Self {
         Self {
             r: self.r + (other.r - self.r) * t,
             g: self.g + (other.g - self.g) * t,
@@ -40,6 +40,8 @@ pub struct Palette {
     pub foreground: Rgb,
     /// Secondary text such as the high score.
     pub faint: Rgb,
+    /// The rex itself, so it stands out from the obstacles.
+    pub accent: Rgb,
 }
 
 /// Chrome's own colours: a light grey on white.
@@ -47,6 +49,7 @@ pub const CHROME: Palette = Palette {
     background: Rgb::from_bytes(0xff, 0xff, 0xff),
     foreground: Rgb::from_bytes(0x53, 0x53, 0x53),
     faint: Rgb::from_bytes(0x75, 0x75, 0x75),
+    accent: Rgb::from_bytes(0x53, 0x53, 0x53),
 };
 
 impl Palette {
@@ -58,6 +61,7 @@ impl Palette {
             background: self.background.lerp(self.background.inverted(), t),
             foreground: self.foreground.lerp(self.foreground.inverted(), t),
             faint: self.faint.lerp(self.faint.inverted(), t),
+            accent: self.accent.lerp(self.accent.inverted(), t),
         }
     }
 }
