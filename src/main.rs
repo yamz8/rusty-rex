@@ -3,6 +3,7 @@ mod draw;
 mod game;
 mod obstacle;
 mod rex;
+mod storage;
 mod view;
 
 use clock::{Clock, TICK};
@@ -34,11 +35,28 @@ async fn main() {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
     let mut game = Game::new(seed);
+    let score_path = storage::default_high_score_path();
+    if let Some(path) = &score_path {
+        game.high_score = storage::load(path);
+    }
+    let mut saved_high_score = game.high_score;
     let mut clock = Clock::default();
     loop {
         let input = read_input();
         for _ in 0..clock.advance(get_frame_time()) {
             game.update(TICK, input);
+        }
+        if game.high_score > saved_high_score {
+            saved_high_score = game.high_score;
+            // Losing a high score isn't worth crashing the game over.
+            if let Some(path) = &score_path
+                && let Err(e) = storage::save(path, saved_high_score)
+            {
+                eprintln!(
+                    "rusty-rex: couldn't save high score to {}: {e}",
+                    path.display()
+                );
+            }
         }
         draw::frame(&game);
         next_frame().await;

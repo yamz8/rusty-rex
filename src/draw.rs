@@ -2,7 +2,7 @@
 
 use macroquad::prelude::*;
 
-use crate::game::{Game, REX_X, State};
+use crate::game::{Game, MILESTONE_FLASH, REX_X, State};
 use crate::obstacle::{Kind, Obstacle};
 use crate::rex::{Pose, Rex};
 use crate::view;
@@ -26,6 +26,7 @@ pub fn frame(game: &Game) {
         obstacle(o);
     }
     rex(&game.rex, game.state);
+    score(game);
 
     match game.state {
         State::Waiting => centred_text("Press Space to start", 150.0, 24.0),
@@ -34,6 +35,26 @@ pub fn frame(game: &Game) {
             centred_text("Press Space to play again", 165.0, 20.0);
         }
         State::Running => {}
+    }
+}
+
+fn score(game: &Game) {
+    // Chrome blinks the score on and off a few times at each milestone.
+    let blink_off = game.milestone_flash > 0.0
+        && ((MILESTONE_FLASH - game.milestone_flash) / 0.2) as u32 % 2 == 1;
+    let size = 22.0;
+    let right = view::PLAYFIELD_WIDTH - 20.0;
+    let y = 40.0;
+    let current = format!("{:05}", game.score());
+    let current_width = measure_text(&current, None, size as u16, 1.0).width;
+    if !blink_off {
+        draw_text(&current, right - current_width, y, size, DARKGRAY);
+    }
+    if game.high_score > 0 {
+        let high = format!("HI {:05}", game.high_score);
+        let high_width = measure_text(&high, None, size as u16, 1.0).width;
+        let x = right - current_width - 24.0 - high_width;
+        draw_text(&high, x, y, size, GRAY);
     }
 }
 

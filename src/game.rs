@@ -32,6 +32,12 @@ const DESPAWN_X: f32 = -300.0;
 /// After a crash, jump is ignored this long so a panicked press doesn't skip
 /// straight past the game-over screen.
 pub const RESTART_DELAY: f32 = 0.5;
+/// Chrome's score is the distance in pixels times this.
+const SCORE_PER_PIXEL: f32 = 0.025;
+/// Every this many points the score blinks, as in Chrome.
+pub const MILESTONE: u32 = 100;
+/// How long the score blinks after a milestone.
+pub const MILESTONE_FLASH: f32 = 0.8;
 /// The rex's hitbox is trimmed more than the obstacles', since its blocky
 /// stand-in art has empty corners around the head and tail.
 const REX_HITBOX_INSET: f32 = 6.0;
@@ -54,6 +60,10 @@ pub struct Game {
     /// How far the world has scrolled in this run.
     pub distance: f32,
     pub obstacles: Vec<Obstacle>,
+    /// Best score so far, including earlier sessions once loaded from disk.
+    pub high_score: u32,
+    /// Seconds of score blinking left after the last milestone.
+    pub milestone_flash: f32,
     rng: Rng,
     /// Distance left before the next obstacle spawns.
     until_spawn: f32,
@@ -70,6 +80,8 @@ impl Game {
             speed: START_SPEED,
             distance: 0.0,
             obstacles: Vec::new(),
+            high_score: 0,
+            milestone_flash: 0.0,
             rng: Rng::new(seed),
             until_spawn: FIRST_SPAWN_DISTANCE,
             recent: Vec::new(),
@@ -99,6 +111,10 @@ impl Game {
         }
     }
 
+    pub fn score(&self) -> u32 {
+        (self.distance * SCORE_PER_PIXEL) as u32
+    }
+
     pub fn rex_hitbox(&self) -> Hitbox {
         let (w, h) = self.rex.size();
         Hitbox::new(REX_X, self.rex.height, w, h).inset(REX_HITBOX_INSET)
@@ -108,7 +124,12 @@ impl Game {
         self.rex.update(dt, input);
 
         let step = self.speed * dt;
+        let before = self.score();
         self.distance += step;
+        self.milestone_flash = (self.milestone_flash - dt).max(0.0);
+        if self.score() / MILESTONE > before / MILESTONE {
+            self.milestone_flash = MILESTONE_FLASH;
+        }
         self.speed = (self.speed + ACCELERATION * dt).min(MAX_SPEED);
 
         for o in &mut self.obstacles {
@@ -125,6 +146,8 @@ impl Game {
         let rex = self.rex_hitbox();
         if self.obstacles.iter().any(|o| o.hitbox().overlaps(&rex)) {
             self.state = State::Over(0.0);
+            self.milestone_flash = 0.0;
+            self.high_score = self.high_score.max(self.score());
         }
     }
 
@@ -144,6 +167,7 @@ impl Game {
         *self = Self {
             state: State::Running,
             rng,
+            high_score: self.high_score,
             ..Self::new(0)
         };
         self.jump_was_down = true;
@@ -311,6 +335,51 @@ mod tests {
         let mut game = course(Obstacle::new(Kind::Pterodactyl, 400.0, low));
         play(&mut game, |ahead| if ahead < 40.0 { JUMP } else { NONE });
         assert_eq!(game.state, State::Running);
+    }
+
+    #[test]
+    fn score_follows_chrome() {
+        let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        game.distance = 4000.0;
+        assert_eq!(game.score(), 100);
+        run(&mut game, 1.0, NONE);
+        // About 9 points a second at the starting speed.
+        assert!((108..=110).contains(&game.score()), "{}", game.score());
+    }
+
+    #[test]
+    fn the_score_blinks_at_each_hundred() {
+        let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        game.distance = 3990.0;
+        game.update(DT, NONE);
+        assert_eq!(game.milestone_flash, 0.0);
+        run(&mut game, 0.1, NONE);
+        assert!(game.milestone_flash > 0.0);
+        run(&mut game, MILESTONE_FLASH, NONE);
+        assert_eq!(game.milestone_flash, 0.0);
+    }
+
+    #[test]
+    fn a_crash_records_only_a_better_score() {
+        let mut game = course(Obstacle::new(Kind::LargeCactus(1), 200.0, 0.0));
+        game.high_score = 500;
+        game.distance = 4000.0;
+        play(&mut game, |_| NONE);
+        assert_eq!(game.high_score, 500);
+
+        let mut game = course(Obstacle::new(Kind::LargeCactus(1), 200.0, 0.0));
+        game.high_score = 50;
+        game.distance = 4000.0;
+        play(&mut game, |_| NONE);
+        let crashed_at = game.score();
+        assert!(crashed_at > 100);
+        assert_eq!(game.high_score, crashed_at);
+
+        // It survives the restart while the score itself starts over.
+        run(&mut game, RESTART_DELAY, NONE);
+        game.update(DT, JUMP);
+        assert_eq!(game.high_score, crashed_at);
+        assert_eq!(game.score(), 0);
     }
 
     #[test]
