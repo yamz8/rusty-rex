@@ -17,15 +17,17 @@ up in the app launcher.
 
 ## Releasing
 
-1. Bump the version in `Cargo.toml`, `pkgbuild/PKGBUILD` and
-   `pkgbuild/aur/PKGBUILD`, run `bin/test`, commit "Release X.Y.Z".
+1. Bump the version in `Cargo.toml` and `pkgbuild/PKGBUILD`, run
+   `bin/test`, commit "Release X.Y.Z". Any code change after a release
+   needs a new version, so one version never names two different builds.
 2. Tag `vX.Y.Z`, push the commit and tag, then `gh release create` with
    `build/rusty-rex` packed with the desktop entry, icon, LICENSE and README.
-3. AUR: put the sha256 of `$url/archive/vX.Y.Z.tar.gz` in
-   `pkgbuild/aur/PKGBUILD`, regenerate `.SRCINFO` with
-   `makepkg --printsrcinfo`, test with `makepkg -f --nodeps` in a scratch
-   directory (cargo is from rustup, not pacman), then push both files to the
-   AUR repo.
+3. Only now update the AUR package, since its checksum is of GitHub's tarball
+   for the pushed tag: set `pkgver` and the sha256 of
+   `$url/archive/vX.Y.Z.tar.gz` in `pkgbuild/aur/PKGBUILD`, regenerate
+   `.SRCINFO` with `makepkg --printsrcinfo`, test with `makepkg -f --nodeps`
+   in a scratch directory (cargo is from rustup, not pacman), commit "Update
+   the AUR package to X.Y.Z" and push. Then push both files to the AUR repo.
 
 ## Where things are
 
