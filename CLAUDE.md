@@ -17,7 +17,21 @@ up in the app launcher.
 
 ## Where things are
 
-- `src/main.rs` window setup and the game loop.
+- `src/main.rs` window setup and the game loop, plus the glue that loads
+  sounds, the high score and the theme.
+- Game logic, no macroquad, unit tested:
+  - `src/rex.rs` running, jumping and ducking physics.
+  - `src/game.rs` states, scrolling, speed, spawning, collisions, score,
+    night and sound events.
+  - `src/obstacle.rs` cacti and pterodactyls, hitboxes, the seeded RNG.
+  - `src/clock.rs` fixed 1/120 s physics ticks.
+  - `src/view.rs` fitting the 960x320 playfield into any window size.
+  - `src/palette.rs` colours and the day/night blend.
+  - `src/theme.rs` reads the Omarchy theme's `colors.toml`.
+  - `src/storage.rs` the high score file.
+  - `src/sound.rs` synthesises the sound effects as WAVs.
+  - `src/sprites.rs` pixel art as text grids.
+- `src/draw.rs` all drawing; it only reads game state.
 - `pkgbuild/` PKGBUILD, desktop entry, icon.
 - `docs/roadmap.md` what's next.
 
