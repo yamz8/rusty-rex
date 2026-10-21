@@ -42,8 +42,8 @@ pub const MILESTONE_FLASH: f32 = 0.8;
 pub const NIGHT_EVERY: u32 = 700;
 /// How long the change between day and night takes.
 const NIGHT_FADE_TIME: f32 = 1.0;
-/// The rex's hitbox is trimmed more than the obstacles', since its blocky
-/// stand-in art has empty corners around the head and tail.
+/// The rex's hitbox is trimmed more than the obstacles', since its sprite
+/// leaves empty corners above the tail and under the jaw.
 const REX_HITBOX_INSET: f32 = 6.0;
 
 /// Things that happened during an update, for the sound effects.

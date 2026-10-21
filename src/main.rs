@@ -5,6 +5,7 @@ mod obstacle;
 mod palette;
 mod rex;
 mod sound;
+mod sprites;
 mod storage;
 mod theme;
 mod view;

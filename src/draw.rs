@@ -6,6 +6,7 @@ use crate::game::{Game, MILESTONE_FLASH, REX_X, State};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
 use crate::rex::{Pose, Rex};
+use crate::sprites::{self, Legs};
 use crate::view;
 
 /// Screen y of the ground line, in playfield units.
@@ -113,48 +114,38 @@ fn obstacle(o: &Obstacle, c: &Colors) {
     let y = top(o.bottom, h);
     match o.kind {
         Kind::SmallCactus(n) | Kind::LargeCactus(n) => {
+            let grid = if matches!(o.kind, Kind::SmallCactus(_)) {
+                sprites::SMALL_CACTUS
+            } else {
+                sprites::LARGE_CACTUS
+            };
             let each = w / n as f32;
             for i in 0..n {
-                cactus(o.x + i as f32 * each, y, each, h, c);
+                sprite(grid, o.x + i as f32 * each, y, each, h, c.fg, c.bg);
             }
         }
-        Kind::Pterodactyl => pterodactyl(o.x, y, w, h, o.wings_up(), c),
+        Kind::Pterodactyl => {
+            let grid = if o.wings_up() {
+                sprites::PTERODACTYL_WINGS_UP
+            } else {
+                sprites::PTERODACTYL_WINGS_DOWN
+            };
+            sprite(grid, o.x, y, w, h, c.fg, c.bg);
+        }
     }
 }
 
-/// A trunk with an arm on each side, raised at different heights so a group
-/// doesn't look like a fence.
-fn cactus(x: f32, y: f32, w: f32, h: f32, c: &Colors) {
-    let trunk = w * 0.4;
-    let trunk_x = x + (w - trunk) / 2.0;
-    let arm = (w - trunk) / 2.0;
-    draw_rectangle(trunk_x, y, trunk, h, c.fg);
-    draw_rectangle(x, y + h * 0.3, arm, h * 0.3, c.fg);
-    draw_rectangle(x, y + h * 0.55, trunk_x - x, 3.0, c.fg);
-    draw_rectangle(trunk_x + trunk, y + h * 0.2, arm, h * 0.25, c.fg);
-    draw_rectangle(trunk_x + trunk, y + h * 0.42, arm, 3.0, c.fg);
-}
-
-/// Flies left, so the beak is on the left.
-fn pterodactyl(x: f32, y: f32, w: f32, h: f32, wings_up: bool, c: &Colors) {
-    let body_y = y + h * 0.45;
-    draw_rectangle(x, body_y, 14.0, 5.0, c.fg);
-    draw_rectangle(x + 10.0, body_y - 4.0, w - 10.0, 10.0, c.fg);
-    draw_rectangle(x + 14.0, body_y - 2.0, 3.0, 3.0, c.bg);
-    let wing_x = x + 18.0;
-    if wings_up {
-        draw_triangle(
-            vec2(wing_x, body_y - 4.0),
-            vec2(wing_x + 16.0, body_y - 4.0),
-            vec2(wing_x + 4.0, y),
-            c.fg,
-        );
-    } else {
-        draw_triangle(
-            vec2(wing_x, body_y + 6.0),
-            vec2(wing_x + 16.0, body_y + 6.0),
-            vec2(wing_x + 4.0, y + h),
-            c.fg,
+/// Stretches a pixel grid over a w x h box with its top-left at (x, y).
+fn sprite(rows: &[&str], x: f32, y: f32, w: f32, h: f32, fill: Color, eye: Color) {
+    let px = w / rows[0].len() as f32;
+    let py = h / rows.len() as f32;
+    for run in sprites::runs(rows) {
+        draw_rectangle(
+            x + run.x as f32 * px,
+            y + run.y as f32 * py,
+            run.len as f32 * px,
+            py,
+            if run.eye { eye } else { fill },
         );
     }
 }
@@ -196,30 +187,18 @@ fn ground(area: view::Rect, distance: f32, c: &Colors) {
     }
 }
 
-/// Blocky stand-in for the rex sprite until real art lands.
 fn rex(rex: &Rex, state: State, c: &Colors) {
     let (w, h) = rex.size();
-    let x = REX_X;
-    let top = top(rex.height, h);
-    let leg_h = 8.0;
-    let body_h = h - leg_h;
-
-    draw_rectangle(x, top, w, body_h, c.accent);
-    // A crashed rex gets Chrome's wide-eyed look.
-    let eye = if matches!(state, State::Over(_)) {
-        7.0
-    } else {
-        4.0
-    };
-    draw_rectangle(x + w - 12.0, top + 5.0, eye, eye, c.bg);
-
     // Both feet stay down mid-air, and while waiting or after a crash.
-    let (back_up, front_up) = match (rex.pose, state) {
-        (Pose::Jumping, _) | (_, State::Waiting | State::Over(_)) => (false, false),
-        _ => (rex.back_leg_up, !rex.back_leg_up),
+    let legs = match (rex.pose, state) {
+        (Pose::Jumping, _) | (_, State::Waiting | State::Over(_)) => Legs::Down,
+        _ if rex.back_leg_up => Legs::BackUp,
+        _ => Legs::FrontUp,
     };
-    let legs_top = top + body_h;
-    let lift = |up: bool| if up { 4.0 } else { 0.0 };
-    draw_rectangle(x + 8.0, legs_top, 6.0, leg_h - lift(back_up), c.accent);
-    draw_rectangle(x + 22.0, legs_top, 6.0, leg_h - lift(front_up), c.accent);
+    let rows = sprites::rex(
+        rex.pose == Pose::Ducking,
+        matches!(state, State::Over(_)),
+        legs,
+    );
+    sprite(&rows, REX_X, top(rex.height, h), w, h, c.accent, c.bg);
 }
