@@ -15,6 +15,18 @@ up in the app launcher.
 - Cargo lives in `~/.cargo/bin` (rustup) and isn't on PATH in every shell;
   the `bin/` scripts source `~/.cargo/env` when needed.
 
+## Releasing
+
+1. Bump the version in `Cargo.toml`, `pkgbuild/PKGBUILD` and
+   `pkgbuild/aur/PKGBUILD`, run `bin/test`, commit "Release X.Y.Z".
+2. Tag `vX.Y.Z`, push the commit and tag, then `gh release create` with
+   `build/rusty-rex` packed with the desktop entry, icon, LICENSE and README.
+3. AUR: put the sha256 of `$url/archive/vX.Y.Z.tar.gz` in
+   `pkgbuild/aur/PKGBUILD`, regenerate `.SRCINFO` with
+   `makepkg --printsrcinfo`, test with `makepkg -f --nodeps` in a scratch
+   directory (cargo is from rustup, not pacman), then push both files to the
+   AUR repo.
+
 ## Where things are
 
 - `src/main.rs` window setup and the game loop, plus the glue that loads
@@ -32,7 +44,9 @@ up in the app launcher.
   - `src/sound.rs` synthesises the sound effects as WAVs.
   - `src/sprites.rs` pixel art as text grids.
 - `src/draw.rs` all drawing; it only reads game state.
-- `pkgbuild/` PKGBUILD, desktop entry, icon.
+- `pkgbuild/` PKGBUILD for `bin/install`, desktop entry, icon;
+  `pkgbuild/aur/` the AUR package, built from GitHub release tags.
+- `.github/workflows/test.yml` runs `bin/test` on every push.
 - `docs/roadmap.md` what's next.
 
 ## Conventions

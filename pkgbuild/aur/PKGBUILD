@@ -1,0 +1,43 @@
+# Maintainer: yamz8 <yam at kernelius dot com>
+#
+# AUR package: builds a tagged release from GitHub. The PKGBUILD one level
+# up builds the local checkout instead, for bin/install.
+
+pkgname=rusty-rex
+pkgver=1.1.0
+pkgrel=1
+pkgdesc='The Chrome offline dinosaur game, rebuilt in Rust'
+arch=('x86_64' 'aarch64')
+url='https://github.com/yamz8/rusty-rex'
+license=('MIT')
+depends=('alsa-lib' 'gcc-libs' 'glibc' 'libx11' 'libxi' 'mesa')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('8da3e8770ae2c4358872880ec9634da9ad5f04fea9eb5195ea30aa71416f9c00')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/rusty-rex "$pkgdir/usr/bin/rusty-rex"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 pkgbuild/rusty-rex.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/rusty-rex.svg"
+  install -Dm644 pkgbuild/rusty-rex.desktop "$pkgdir/usr/share/applications/rusty-rex.desktop"
+}
