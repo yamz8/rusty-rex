@@ -2,8 +2,11 @@
 
 /// Chrome only sends pterodactyls once the game reaches 8.5 px per frame.
 pub const PTERODACTYL_MIN_SPEED: f32 = 510.0;
-/// Chrome only groups cacti once the game reaches 7 px per frame.
-pub const GROUP_MIN_SPEED: f32 = 420.0;
+/// Chrome groups small cacti from 4 px per frame, which is below the
+/// starting speed, so they can come in groups from the start.
+pub const SMALL_GROUP_MIN_SPEED: f32 = 240.0;
+/// Chrome only groups large cacti once the game reaches 7 px per frame.
+pub const LARGE_GROUP_MIN_SPEED: f32 = 420.0;
 /// Height of a pterodactyl's underside for each lane. The low one has to be
 /// jumped, the middle one ducked under (a ducking rex is 30 tall) and the high
 /// one clears a standing rex (47 tall).
@@ -119,11 +122,15 @@ impl Obstacle {
 pub fn choose(rng: &mut Rng, speed: f32, recent: &[Kind], x: f32) -> Obstacle {
     loop {
         let families = if speed >= PTERODACTYL_MIN_SPEED { 3 } else { 2 };
-        let max_group = if speed >= GROUP_MIN_SPEED { 3 } else { 1 };
-        let group = 1 + rng.below(max_group) as u8;
         let (kind, bottom) = match rng.below(families) {
-            0 => (Kind::SmallCactus(group), 0.0),
-            1 => (Kind::LargeCactus(group), 0.0),
+            0 => (
+                Kind::SmallCactus(group(rng, speed, SMALL_GROUP_MIN_SPEED)),
+                0.0,
+            ),
+            1 => (
+                Kind::LargeCactus(group(rng, speed, LARGE_GROUP_MIN_SPEED)),
+                0.0,
+            ),
             _ => {
                 let lane = rng.below(PTERODACTYL_LANES.len() as u32) as usize;
                 (Kind::Pterodactyl, PTERODACTYL_LANES[lane])
@@ -137,6 +144,12 @@ pub fn choose(rng: &mut Rng, speed: f32, recent: &[Kind], x: f32) -> Obstacle {
             return Obstacle::new(kind, x, bottom);
         }
     }
+}
+
+/// A group size of 1 to 3, or always 1 below the speed where groups start.
+fn group(rng: &mut Rng, speed: f32, min_speed: f32) -> u8 {
+    let max = if speed >= min_speed { 3 } else { 1 };
+    1 + rng.below(max) as u8
 }
 
 /// Small xorshift generator. Seeded explicitly so tests are repeatable and the
@@ -194,13 +207,15 @@ mod tests {
     }
 
     #[test]
-    fn no_pterodactyls_or_groups_at_the_start() {
-        for o in many(360.0) {
+    fn the_start_has_small_groups_but_no_large_ones_or_pterodactyls() {
+        let all = many(360.0);
+        for o in &all {
             assert!(matches!(
                 o.kind,
-                Kind::SmallCactus(1) | Kind::LargeCactus(1)
+                Kind::SmallCactus(_) | Kind::LargeCactus(1)
             ));
         }
+        assert!(all.iter().any(|o| o.kind == Kind::SmallCactus(3)));
     }
 
     #[test]

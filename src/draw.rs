@@ -65,6 +65,15 @@ pub fn frame(game: &Game, day: Palette, muted: bool) {
         draw_text("MUTED", 20.0, 40.0, 18.0, c.faint);
     }
 
+    // Cover anything past the widest stretch the game shows, so obstacles
+    // can't be seen appearing or vanishing on very wide windows.
+    let shown = view::shown(area);
+    if shown.w < area.w {
+        let right = shown.x + shown.w;
+        draw_rectangle(area.x, area.y, shown.x - area.x, area.h, c.bg);
+        draw_rectangle(right, area.y, area.x + area.w - right, area.h, c.bg);
+    }
+
     match game.state {
         State::Waiting => centred_text("Press Space to start", 150.0, 24.0, c.fg),
         State::Paused => {

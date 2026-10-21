@@ -22,7 +22,7 @@ const REX_HEAD: Grid = &[
 /// Chrome's crashed rex stares wide-eyed.
 const REX_HEAD_CRASHED: Grid = &[
     "............########..",
-    "...........#oo########",
+    "...........#oo#######.",
     "...........#oo########",
     "...........###########",
     "...........###########",
@@ -82,7 +82,7 @@ const DUCK_BODY: Grid = &[
 const DUCK_BODY_CRASHED: Grid = &[
     "....................########..",
     "...................#oo#######.",
-    "##.................#oo########",
+    "##.......###########oo########",
     "#############################.",
     ".########################.....",
     "..#####################.......",
@@ -447,6 +447,32 @@ mod tests {
         for legs in [Legs::Down, Legs::BackUp, Legs::FrontUp] {
             let rows = rex(false, false, legs);
             assert!(rows.last().unwrap().contains('#'));
+        }
+    }
+
+    /// The crashed eye is drawn inside the head, so the outline must not
+    /// change; only which cells are eye.
+    #[test]
+    fn crashing_keeps_the_outline() {
+        let footprint = |rows: &[&str]| -> Vec<(usize, usize)> {
+            let mut cells = Vec::new();
+            for (y, row) in rows.iter().enumerate() {
+                for (x, c) in row.bytes().enumerate() {
+                    if c != b'.' {
+                        cells.push((x, y));
+                    }
+                }
+            }
+            cells
+        };
+        for ducking in [false, true] {
+            for legs in LEGS {
+                assert_eq!(
+                    footprint(&rex(ducking, false, legs)),
+                    footprint(&rex(ducking, true, legs)),
+                    "ducking {ducking}, {legs:?}"
+                );
+            }
         }
     }
 

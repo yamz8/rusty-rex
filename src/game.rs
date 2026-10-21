@@ -28,7 +28,7 @@ const MAX_GAP_FACTOR: f32 = 1.5;
 /// Distance before the first obstacle, giving the player a moment to settle.
 const FIRST_SPAWN_DISTANCE: f32 = 360.0;
 /// Obstacles this far left of the playfield are gone for good.
-const DESPAWN_X: f32 = -300.0;
+pub const DESPAWN_X: f32 = -300.0;
 /// After a crash, jump is ignored this long so a panicked press doesn't skip
 /// straight past the game-over screen.
 pub const RESTART_DELAY: f32 = 0.5;
@@ -38,8 +38,10 @@ const SCORE_PER_PIXEL: f32 = 0.025;
 pub const MILESTONE: u32 = 100;
 /// How long the score blinks after a milestone.
 pub const MILESTONE_FLASH: f32 = 0.8;
-/// Chrome flips between day and night every this many points.
+/// Chrome brings on the night every this many points.
 pub const NIGHT_EVERY: u32 = 700;
+/// How long each night lasts before day returns, as in Chrome.
+const NIGHT_LENGTH: f32 = 12.0;
 /// How long the change between day and night takes.
 const NIGHT_FADE_TIME: f32 = 1.0;
 /// The rex's hitbox is trimmed more than the obstacles', since its sprite
@@ -80,6 +82,8 @@ pub struct Game {
     pub milestone_flash: f32,
     /// 0 is full day, 1 full night; in between while fading.
     pub night: f32,
+    /// Seconds of night left; day returns when it runs out.
+    night_left: f32,
     /// Events since the caller last drained them.
     pub events: Vec<Event>,
     rng: Rng,
@@ -101,6 +105,7 @@ impl Game {
             high_score: 0,
             milestone_flash: 0.0,
             night: 0.0,
+            night_left: 0.0,
             events: Vec::new(),
             rng: Rng::new(seed),
             until_spawn: FIRST_SPAWN_DISTANCE,
@@ -137,7 +142,14 @@ impl Game {
     pub fn toggle_pause(&mut self) {
         self.state = match self.state {
             State::Running => State::Paused,
-            State::Paused => State::Running,
+            State::Paused => {
+                // The rex didn't see jump while paused, so a key held through
+                // the pause would otherwise look like a fresh press.
+                if self.jump_was_down {
+                    self.rex.ignore_held_jump();
+                }
+                State::Running
+            }
             other => other,
         };
     }
@@ -166,11 +178,11 @@ impl Game {
             self.milestone_flash = MILESTONE_FLASH;
             self.events.push(Event::Milestone);
         }
-        let target = if (self.score() / NIGHT_EVERY) % 2 == 1 {
-            1.0
-        } else {
-            0.0
-        };
+        self.night_left = (self.night_left - dt).max(0.0);
+        if self.score() / NIGHT_EVERY > before / NIGHT_EVERY {
+            self.night_left = NIGHT_LENGTH;
+        }
+        let target = if self.night_left > 0.0 { 1.0 } else { 0.0 };
         let fade_step = dt / NIGHT_FADE_TIME;
         self.night += (target - self.night).clamp(-fade_step, fade_step);
         self.speed = (self.speed + ACCELERATION * dt).min(MAX_SPEED);
@@ -321,18 +333,28 @@ mod tests {
         game.update(DT, JUMP);
         game.rex = Rex::new();
         let mut checked = 0;
+        let mut count = game.obstacles.len();
         // Ducking keeps the rex low but doesn't stop the crash check, so
-        // collisions are cleared by hand to keep the run going.
-        for _ in 0..(120.0 / DT) as u32 {
+        // collisions are cleared by hand to keep the run going. The run lasts
+        // long enough to reach top speed, where gaps are tightest in pixels
+        // per second.
+        for _ in 0..(150.0 / DT) as u32 {
             game.update(DT, DUCK);
             game.state = State::Running;
-            for pair in game.obstacles.windows(2) {
-                let gap = pair[1].x - pair[0].right();
-                assert!(gap >= START_SPEED * MIN_GAP_TIME - 1.0, "gap {gap}");
+            if game.obstacles.len() > count && game.obstacles.len() >= 2 {
+                // Measured the moment the new obstacle appears, in seconds
+                // at the current speed, which is what the player gets.
+                let [.., before, new] = &game.obstacles[..] else {
+                    unreachable!()
+                };
+                let seconds = (new.x - before.right()) / game.speed;
+                assert!(seconds >= MIN_GAP_TIME - DT, "gap {seconds} s");
                 checked += 1;
             }
+            count = game.obstacles.len();
         }
-        assert!(checked > 0);
+        assert_eq!(game.speed, MAX_SPEED);
+        assert!(checked > 50, "only {checked} gaps checked");
     }
 
     #[test]
@@ -427,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn night_falls_every_seven_hundred_points_and_lifts_again() {
+    fn night_falls_every_seven_hundred_points_for_twelve_seconds() {
         let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
         game.distance = 699.0 / 0.025;
         game.update(DT, NONE);
@@ -437,9 +459,18 @@ mod tests {
         run(&mut game, 1.0, NONE);
         assert_eq!(game.night, 1.0);
 
-        game.distance = 1400.0 / 0.025;
-        run(&mut game, 1.5, NONE);
+        // Still night near the end of the twelve seconds, day soon after,
+        // long before the next 700 points.
+        run(&mut game, NIGHT_LENGTH - 2.0, NONE);
+        assert_eq!(game.night, 1.0);
+        run(&mut game, 2.0 + NIGHT_FADE_TIME, NONE);
         assert_eq!(game.night, 0.0);
+        assert!(game.score() < 2 * NIGHT_EVERY);
+
+        // The next 700 brings the next night.
+        game.distance = (2 * NIGHT_EVERY) as f32 / 0.025 - 1.0;
+        run(&mut game, 1.5, NONE);
+        assert_eq!(game.night, 1.0);
     }
 
     #[test]
@@ -483,6 +514,20 @@ mod tests {
         assert_eq!(game.state, State::Running);
         game.update(DT, NONE);
         assert!(game.distance > distance);
+    }
+
+    #[test]
+    fn jump_held_through_a_pause_needs_a_fresh_press() {
+        let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        game.toggle_pause();
+        run(&mut game, 0.5, JUMP);
+        game.toggle_pause();
+        run(&mut game, 0.2, JUMP);
+        assert_eq!(game.rex.pose, Pose::Running);
+
+        game.update(DT, NONE);
+        game.update(DT, JUMP);
+        assert_eq!(game.rex.pose, Pose::Jumping);
     }
 
     #[test]
