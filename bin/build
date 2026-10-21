@@ -1,0 +1,9 @@
+#!/bin/bash
+# Build build/rusty-rex in release mode.
+set -e
+cd "$(dirname "$0")/.."
+# rustup lives in ~/.cargo, which isn't on PATH in every shell.
+command -v cargo >/dev/null || source "$HOME/.cargo/env"
+cargo build --release
+mkdir -p build
+cp target/release/rusty-rex build/rusty-rex

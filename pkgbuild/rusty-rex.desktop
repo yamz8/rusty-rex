@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Rusty Rex
+Comment=The offline dinosaur runner, in Rust
+Exec=rusty-rex
+Icon=rusty-rex
+Categories=Game;ArcadeGame;
+Terminal=false

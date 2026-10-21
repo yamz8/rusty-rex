@@ -1,0 +1,13 @@
+[package]
+name = "rusty-rex"
+version = "0.1.0"
+edition = "2024"
+description = "The offline dinosaur runner, in Rust"
+license = "MIT"
+
+[dependencies]
+macroquad = "0.4.16"
+
+[profile.release]
+lto = true
+strip = true

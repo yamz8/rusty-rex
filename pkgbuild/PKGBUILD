@@ -1,0 +1,25 @@
+pkgname=rusty-rex
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='The offline dinosaur runner, in Rust'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+depends=('libx11' 'libxi' 'mesa' 'alsa-lib')
+# Cargo comes from rustup in ~/.cargo, not pacman, so it isn't a makedepend.
+makedepends=()
+source=()
+sha256sums=()
+options=('!debug')
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/rusty-rex "$pkgdir/usr/bin/rusty-rex"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/rusty-rex.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/rusty-rex.svg"
+  install -Dm644 "$startdir/rusty-rex.desktop" "$pkgdir/usr/share/applications/rusty-rex.desktop"
+}

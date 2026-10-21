@@ -1,0 +1,5 @@
+#!/bin/bash
+# Build the Arch package and install it, so Rusty Rex shows up in the launcher.
+set -e
+cd "$(dirname "$0")/../pkgbuild"
+makepkg -fi
