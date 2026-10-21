@@ -69,6 +69,12 @@ impl Rex {
         }
     }
 
+    /// Treats jump as already held, so the press that restarted the game
+    /// doesn't also launch the new rex.
+    pub fn ignore_held_jump(&mut self) {
+        self.jump_was_down = true;
+    }
+
     pub fn on_ground(&self) -> bool {
         self.pose != Pose::Jumping
     }

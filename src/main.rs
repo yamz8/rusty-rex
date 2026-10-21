@@ -1,6 +1,7 @@
 mod clock;
 mod draw;
 mod game;
+mod obstacle;
 mod rex;
 mod view;
 
@@ -28,7 +29,11 @@ fn read_input() -> Input {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut game = Game::new();
+    // Any changing seed will do; it only decides the order of obstacles.
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(1, |d| d.as_nanos() as u64);
+    let mut game = Game::new(seed);
     let mut clock = Clock::default();
     loop {
         let input = read_input();
