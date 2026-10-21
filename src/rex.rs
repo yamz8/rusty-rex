@@ -117,8 +117,12 @@ impl Rex {
             self.velocity -= gravity * dt;
             self.height += self.velocity * dt;
             if self.height <= 0.0 {
+                // The rex reached the ground partway through this step; the
+                // rest of the step is spent running rather than dropped.
+                let below = (self.height / self.velocity).clamp(0.0, dt);
                 self.height = 0.0;
                 self.velocity = 0.0;
+                self.step_legs(below);
                 // Land straight into a duck if down is held, so a fast drop
                 // flows into ducking under the next obstacle.
                 self.pose = if input.duck {
@@ -128,11 +132,15 @@ impl Rex {
                 };
             }
         } else {
-            self.step_timer += dt;
-            while self.step_timer >= STEP_TIME {
-                self.step_timer -= STEP_TIME;
-                self.back_leg_up = !self.back_leg_up;
-            }
+            self.step_legs(dt);
+        }
+    }
+
+    fn step_legs(&mut self, dt: f32) {
+        self.step_timer += dt;
+        while self.step_timer >= STEP_TIME {
+            self.step_timer -= STEP_TIME;
+            self.back_leg_up = !self.back_leg_up;
         }
     }
 }
@@ -303,6 +311,27 @@ mod tests {
         rex.update(DT, NONE);
         assert_eq!(rex.pose, Pose::Running);
         assert_eq!(rex.size(), STANDING_SIZE);
+    }
+
+    #[test]
+    fn time_after_touchdown_goes_to_running() {
+        let mut rex = Rex {
+            pose: Pose::Jumping,
+            height: 1.0,
+            velocity: -240.0,
+            jump_was_down: true,
+            ..Rex::new()
+        };
+        rex.update(DT, JUMP);
+        assert_eq!(rex.pose, Pose::Running);
+        // Falling at 260 px/s from 1 px, it lands 1/260 s into the step, so the
+        // remaining 1/120 - 1/260 s goes to the legs.
+        let expected = DT - 1.0 / 260.0;
+        assert!(
+            (rex.step_timer - expected).abs() < 1e-5,
+            "{}",
+            rex.step_timer
+        );
     }
 
     #[test]
