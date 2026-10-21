@@ -4,5 +4,5 @@
 - [x] Ground scrolling and speed that ramps up
 - [x] Cacti and pterodactyls, collision, game over and restart
 - [x] Score and high score (saved in ~/.local/share/rusty-rex)
-- [ ] Day/night flip, sounds
+- [x] Day/night flip, sounds
 - [ ] Follow the Omarchy theme colours

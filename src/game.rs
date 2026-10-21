@@ -5,7 +5,7 @@
 //! playfield pixels and heights in pixels above the ground.
 
 use crate::obstacle::{self, Hitbox, Kind, Obstacle, Rng};
-use crate::rex::{Input, Rex};
+use crate::rex::{Input, Pose, Rex};
 
 /// Where the rex stands; the world scrolls past it instead of it moving.
 pub const REX_X: f32 = 60.0;
@@ -38,9 +38,21 @@ const SCORE_PER_PIXEL: f32 = 0.025;
 pub const MILESTONE: u32 = 100;
 /// How long the score blinks after a milestone.
 pub const MILESTONE_FLASH: f32 = 0.8;
+/// Chrome flips between day and night every this many points.
+pub const NIGHT_EVERY: u32 = 700;
+/// How long the change between day and night takes.
+const NIGHT_FADE_TIME: f32 = 1.0;
 /// The rex's hitbox is trimmed more than the obstacles', since its blocky
 /// stand-in art has empty corners around the head and tail.
 const REX_HITBOX_INSET: f32 = 6.0;
+
+/// Things that happened during an update, for the sound effects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event {
+    Jump,
+    Milestone,
+    Crash,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum State {
@@ -64,6 +76,10 @@ pub struct Game {
     pub high_score: u32,
     /// Seconds of score blinking left after the last milestone.
     pub milestone_flash: f32,
+    /// 0 is full day, 1 full night; in between while fading.
+    pub night: f32,
+    /// Events since the caller last drained them.
+    pub events: Vec<Event>,
     rng: Rng,
     /// Distance left before the next obstacle spawns.
     until_spawn: f32,
@@ -82,6 +98,8 @@ impl Game {
             obstacles: Vec::new(),
             high_score: 0,
             milestone_flash: 0.0,
+            night: 0.0,
+            events: Vec::new(),
             rng: Rng::new(seed),
             until_spawn: FIRST_SPAWN_DISTANCE,
             recent: Vec::new(),
@@ -121,7 +139,11 @@ impl Game {
     }
 
     fn run(&mut self, dt: f32, input: Input) {
+        let was_jumping = self.rex.pose == Pose::Jumping;
         self.rex.update(dt, input);
+        if !was_jumping && self.rex.pose == Pose::Jumping {
+            self.events.push(Event::Jump);
+        }
 
         let step = self.speed * dt;
         let before = self.score();
@@ -129,7 +151,15 @@ impl Game {
         self.milestone_flash = (self.milestone_flash - dt).max(0.0);
         if self.score() / MILESTONE > before / MILESTONE {
             self.milestone_flash = MILESTONE_FLASH;
+            self.events.push(Event::Milestone);
         }
+        let target = if (self.score() / NIGHT_EVERY) % 2 == 1 {
+            1.0
+        } else {
+            0.0
+        };
+        let fade_step = dt / NIGHT_FADE_TIME;
+        self.night += (target - self.night).clamp(-fade_step, fade_step);
         self.speed = (self.speed + ACCELERATION * dt).min(MAX_SPEED);
 
         for o in &mut self.obstacles {
@@ -147,6 +177,7 @@ impl Game {
         if self.obstacles.iter().any(|o| o.hitbox().overlaps(&rex)) {
             self.state = State::Over(0.0);
             self.milestone_flash = 0.0;
+            self.events.push(Event::Crash);
             self.high_score = self.high_score.max(self.score());
         }
     }
@@ -380,6 +411,48 @@ mod tests {
         game.update(DT, JUMP);
         assert_eq!(game.high_score, crashed_at);
         assert_eq!(game.score(), 0);
+    }
+
+    #[test]
+    fn night_falls_every_seven_hundred_points_and_lifts_again() {
+        let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        game.distance = 699.0 / 0.025;
+        game.update(DT, NONE);
+        assert_eq!(game.night, 0.0);
+        run(&mut game, 0.5, NONE);
+        assert!(game.night > 0.0 && game.night < 1.0, "{}", game.night);
+        run(&mut game, 1.0, NONE);
+        assert_eq!(game.night, 1.0);
+
+        game.distance = 1400.0 / 0.025;
+        run(&mut game, 1.5, NONE);
+        assert_eq!(game.night, 0.0);
+    }
+
+    #[test]
+    fn restarting_brings_back_the_day() {
+        let mut game = course(Obstacle::new(Kind::LargeCactus(1), 200.0, 0.0));
+        game.night = 1.0;
+        game.distance = 700.0 / 0.025;
+        play(&mut game, |_| NONE);
+        run(&mut game, RESTART_DELAY, NONE);
+        game.update(DT, JUMP);
+        assert_eq!(game.night, 0.0);
+    }
+
+    #[test]
+    fn reports_jumps_milestones_and_crashes() {
+        let mut game = course(Obstacle::new(Kind::LargeCactus(1), 300.0, 0.0));
+        game.events.clear();
+        game.distance = 99.9 / 0.025;
+        game.update(DT, JUMP);
+        // Holding jump must not report more jumps.
+        run(&mut game, 0.2, JUMP);
+        assert_eq!(game.events, vec![Event::Jump, Event::Milestone]);
+
+        game.events.clear();
+        play(&mut game, |_| NONE);
+        assert_eq!(game.events, vec![Event::Crash]);
     }
 
     #[test]

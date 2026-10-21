@@ -2,12 +2,15 @@ mod clock;
 mod draw;
 mod game;
 mod obstacle;
+mod palette;
 mod rex;
+mod sound;
 mod storage;
 mod view;
 
 use clock::{Clock, TICK};
-use game::Game;
+use game::{Event, Game};
+use macroquad::audio::{Sound, load_sound_from_bytes, play_sound_once};
 use macroquad::prelude::*;
 use rex::Input;
 use view::{PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
@@ -28,6 +31,35 @@ fn read_input() -> Input {
     }
 }
 
+struct Sounds {
+    jump: Sound,
+    milestone: Sound,
+    crash: Sound,
+}
+
+impl Sounds {
+    /// None when a sound can't be loaded; the game is still playable silent.
+    async fn load() -> Option<Self> {
+        Some(Self {
+            jump: load_sound_from_bytes(&sound::wav(sound::JUMP)).await.ok()?,
+            milestone: load_sound_from_bytes(&sound::wav(sound::MILESTONE))
+                .await
+                .ok()?,
+            crash: load_sound_from_bytes(&sound::wav(sound::CRASH))
+                .await
+                .ok()?,
+        })
+    }
+
+    fn play(&self, event: Event) {
+        play_sound_once(match event {
+            Event::Jump => &self.jump,
+            Event::Milestone => &self.milestone,
+            Event::Crash => &self.crash,
+        });
+    }
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
     // Any changing seed will do; it only decides the order of obstacles.
@@ -40,11 +72,20 @@ async fn main() {
         game.high_score = storage::load(path);
     }
     let mut saved_high_score = game.high_score;
+    let sounds = Sounds::load().await;
+    if sounds.is_none() {
+        eprintln!("rusty-rex: couldn't load sounds, playing silent");
+    }
     let mut clock = Clock::default();
     loop {
         let input = read_input();
         for _ in 0..clock.advance(get_frame_time()) {
             game.update(TICK, input);
+        }
+        for event in game.events.drain(..) {
+            if let Some(sounds) = &sounds {
+                sounds.play(event);
+            }
         }
         if game.high_score > saved_high_score {
             saved_high_score = game.high_score;
@@ -58,7 +99,7 @@ async fn main() {
                 );
             }
         }
-        draw::frame(&game);
+        draw::frame(&game, palette::CHROME);
         next_frame().await;
     }
 }
