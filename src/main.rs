@@ -26,16 +26,13 @@ const THEME_CHECK_SECONDS: f64 = 1.0;
 /// Bound idle rendering without blocking input or theme checks for long.
 const IDLE_FRAME_SECONDS: f64 = 1.0 / 30.0;
 
-fn window_conf() -> Conf {
+fn window_conf(linux_backend: LinuxBackend) -> Conf {
     Conf {
         window_title: "Rusty Rex".to_owned(),
         window_width: PLAYFIELD_WIDTH as i32,
         window_height: PLAYFIELD_HEIGHT as i32,
         platform: Platform {
-            linux_backend: linux_backend(
-                std::env::var_os("DISPLAY").is_some(),
-                std::env::var_os("WAYLAND_DISPLAY").is_some(),
-            ),
+            linux_backend,
             ..Default::default()
         },
         ..Default::default()
@@ -45,11 +42,12 @@ fn window_conf() -> Conf {
 /// Picks how to open the window on Linux. X11 (XWayland) is miniquad's
 /// stable backend, so it stays the choice whenever there is an X display;
 /// without one it panics, so a Wayland-only session uses Wayland instead.
-fn linux_backend(has_x11: bool, has_wayland: bool) -> LinuxBackend {
-    if !has_x11 && has_wayland {
-        LinuxBackend::WaylandOnly
-    } else {
-        LinuxBackend::X11Only
+/// None means there is no display at all.
+fn linux_backend(has_x11: bool, has_wayland: bool) -> Option<LinuxBackend> {
+    match (has_x11, has_wayland) {
+        (true, _) => Some(LinuxBackend::X11Only),
+        (false, true) => Some(LinuxBackend::WaylandOnly),
+        (false, false) => None,
     }
 }
 
@@ -134,8 +132,21 @@ impl Theme {
     }
 }
 
-#[macroquad::main(window_conf)]
-async fn main() {
+fn main() {
+    let backend = linux_backend(
+        std::env::var_os("DISPLAY").is_some(),
+        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+    );
+    // Without a display miniquad panics, which aborts and leaves a core
+    // dump that desktops report as a crash. A plain error says what's wrong.
+    let Some(backend) = backend else {
+        eprintln!("rusty-rex: no display found; run it from a graphical session");
+        std::process::exit(1);
+    };
+    macroquad::Window::from_config(window_conf(backend), run());
+}
+
+async fn run() {
     // Any changing seed will do; it only decides the order of obstacles.
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -197,10 +208,13 @@ mod tests {
 
     #[test]
     fn prefers_x11_and_falls_back_to_wayland() {
-        assert_eq!(linux_backend(true, true), LinuxBackend::X11Only);
-        assert_eq!(linux_backend(true, false), LinuxBackend::X11Only);
-        assert_eq!(linux_backend(false, true), LinuxBackend::WaylandOnly);
-        // With neither, X11 still fails loudly rather than guessing.
-        assert_eq!(linux_backend(false, false), LinuxBackend::X11Only);
+        assert_eq!(linux_backend(true, true), Some(LinuxBackend::X11Only));
+        assert_eq!(linux_backend(true, false), Some(LinuxBackend::X11Only));
+        assert_eq!(linux_backend(false, true), Some(LinuxBackend::WaylandOnly));
+    }
+
+    #[test]
+    fn no_display_has_no_backend() {
+        assert_eq!(linux_backend(false, false), None);
     }
 }
