@@ -46,8 +46,13 @@ pub const FLASH_PERIOD: f32 = 0.5;
 pub const NIGHT_EVERY: u32 = 700;
 /// How long each night lasts before day returns, as in Chrome.
 const NIGHT_LENGTH: f32 = 12.0;
-/// How long the change between day and night takes.
-const NIGHT_FADE_TIME: f32 = 1.0;
+/// How long the change between day and night takes: Chrome's 1.5 s page
+/// transition, eased by NIGHT_EASE.
+const NIGHT_FADE_TIME: f32 = 1.5;
+/// Chrome's cubic-bezier(0.65, 0.05, 0.36, 1) for that transition.
+const NIGHT_EASE: [f32; 4] = [0.65, 0.05, 0.36, 1.0];
+/// Clouds drift at Chrome's steady 1 px/frame, whatever the game speed.
+pub const CLOUD_SPEED: f32 = 60.0;
 /// Chrome's moon goes through this many phases, one each night.
 pub const MOON_PHASES: usize = 7;
 /// Chrome's collision boxes for the rex, standing and ducking. Both are in
@@ -104,8 +109,15 @@ pub struct Game {
     pub milestone_flash: f32,
     /// The milestone the score shows while it blinks.
     milestone_score: u32,
-    /// 0 is full day, 1 full night; in between while fading.
+    /// 0 is full day, 1 full night; in between while fading, eased.
     pub night: f32,
+    /// How far through the fade to night, before easing.
+    night_fade: f32,
+    /// Seconds the night sky has been up, across nights, which moves the
+    /// moon and stars.
+    pub sky_time: f32,
+    /// How far the clouds have drifted, kept across runs as in Chrome.
+    pub clouds: f32,
     /// Seconds of night left; day returns when it runs out.
     night_left: f32,
     /// Nights so far, across runs, so the moon keeps moving through its
@@ -138,6 +150,9 @@ impl Game {
             milestone_flash: 0.0,
             milestone_score: 0,
             night: 0.0,
+            night_fade: 0.0,
+            sky_time: 0.0,
+            clouds: 0.0,
             night_left: 0.0,
             nights: 0,
             events: Vec::new(),
@@ -316,7 +331,12 @@ impl Game {
         }
         let target = if self.night_left > 0.0 { 1.0 } else { 0.0 };
         let fade_step = dt / NIGHT_FADE_TIME;
-        self.night += (target - self.night).clamp(-fade_step, fade_step);
+        self.night_fade += (target - self.night_fade).clamp(-fade_step, fade_step);
+        self.night = cubic_bezier(NIGHT_EASE, self.night_fade);
+        if self.night > 0.0 {
+            self.sky_time += dt;
+        }
+        self.clouds += CLOUD_SPEED * dt;
         self.speed = (self.speed + ACCELERATION * dt).min(MAX_SPEED);
 
         for o in &mut self.obstacles {
@@ -361,11 +381,40 @@ impl Game {
             rng,
             high_score: self.high_score,
             nights: self.nights,
+            sky_time: self.sky_time,
+            clouds: self.clouds,
             ..Self::new(0)
         };
         self.jump_was_down = true;
         self.events.push(Event::Restart);
     }
+}
+
+/// The CSS easing curve with control points `[x1, y1, x2, y2]`, at `p`
+/// of the way through.
+fn cubic_bezier([x1, y1, x2, y2]: [f32; 4], p: f32) -> f32 {
+    // The ends are exact, and most of the time is spent at one of them.
+    if p <= 0.0 {
+        return 0.0;
+    }
+    if p >= 1.0 {
+        return 1.0;
+    }
+    let at = |a: f32, b: f32, t: f32| {
+        let u = 1.0 - t;
+        3.0 * u * u * t * a + 3.0 * u * t * t * b + t * t * t
+    };
+    // x rises with t, so halving finds the t for this p.
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..24 {
+        let mid = (lo + hi) / 2.0;
+        if at(x1, x2, mid) < p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    at(y1, y2, (lo + hi) / 2.0).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -627,28 +676,57 @@ mod tests {
     }
 
     #[test]
+    fn the_night_fade_eases_in_and_out() {
+        let ease = |p| cubic_bezier(NIGHT_EASE, p);
+        assert!(ease(0.0) < 1e-3);
+        assert!(ease(1.0) > 1.0 - 1e-3);
+        // Slow at the start, quick through the middle.
+        assert!(ease(0.2) < 0.1);
+        assert!((ease(0.5) - 0.5).abs() < 0.15);
+        let mut last = 0.0;
+        for i in 1..=100 {
+            let y = ease(i as f32 / 100.0);
+            assert!(y >= last);
+            last = y;
+        }
+    }
+
+    #[test]
+    fn clouds_drift_at_a_steady_pace_and_the_night_sky_moves() {
+        let mut slow = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        let mut fast = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        fast.speed = MAX_SPEED;
+        run(&mut slow, 1.0, NONE);
+        run(&mut fast, 1.0, NONE);
+        assert!((slow.clouds - CLOUD_SPEED).abs() < 1.0);
+        assert!((fast.clouds - slow.clouds).abs() < 1e-3);
+        assert_eq!(slow.sky_time, 0.0, "no night yet");
+    }
+
+    #[test]
     fn night_falls_every_seven_hundred_points_for_twelve_seconds() {
         let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
         game.distance = 699.0 / 0.025;
         game.update(DT, NONE);
         assert_eq!(game.night, 0.0);
-        run(&mut game, 0.5, NONE);
+        run(&mut game, 0.75, NONE);
         assert!(game.night > 0.0 && game.night < 1.0, "{}", game.night);
         run(&mut game, 1.0, NONE);
-        assert_eq!(game.night, 1.0);
+        assert!(game.night > 0.999, "{}", game.night);
+        assert!(game.sky_time > 0.0);
 
         // Still night near the end of the twelve seconds, day soon after,
         // long before the next 700 points.
         run(&mut game, NIGHT_LENGTH - 2.0, NONE);
-        assert_eq!(game.night, 1.0);
+        assert!(game.night > 0.999, "{}", game.night);
         run(&mut game, 2.0 + NIGHT_FADE_TIME, NONE);
-        assert_eq!(game.night, 0.0);
+        assert!(game.night < 1e-3, "{}", game.night);
         assert!(game.score() < 2 * NIGHT_EVERY);
 
         // The next 700 brings the next night.
         game.distance = (2 * NIGHT_EVERY) as f32 / 0.025 - 30.0;
-        run(&mut game, 1.5, NONE);
-        assert_eq!(game.night, 1.0);
+        run(&mut game, 2.0, NONE);
+        assert!(game.night > 0.999, "{}", game.night);
     }
 
     #[test]

@@ -15,7 +15,16 @@ use crate::view;
 pub const GROUND_Y: f32 = 260.0;
 /// The ground pebbles repeat on this spacing; each slot may hold one pebble.
 const PEBBLE_SLOT: f32 = 37.0;
-const STAR_COUNT: i64 = 12;
+/// Chrome's night has two stars and a moon, drifting left at 0.3 and 0.25
+/// px/frame.
+const STAR_COUNT: i64 = 2;
+const STAR_SPEED: f32 = 18.0;
+const MOON_SPEED: f32 = 15.0;
+/// The ground comes in stretches this long, each flat or bumpy, as in
+/// Chrome's two-part horizon line.
+const GROUND_STRETCH: f32 = 600.0;
+/// In a bumpy stretch, each slot this wide may hold a bump.
+const BUMP_SLOT: f32 = 50.0;
 /// Where the sky-coloured circle sits over the moon in each phase, from a
 /// thin crescent through full (None) and back to a crescent facing the
 /// other way.
@@ -38,9 +47,6 @@ const BLINKS: i64 = 3;
 const RESTART_PX: f32 = 3.0;
 /// Clicks this close around the high score count as on it, as in Chrome.
 const HIGH_SCORE_PADDING: f32 = 4.0;
-/// Clouds drift past at this fraction of the ground's speed, so they look
-/// far away; Chrome uses the same ratio.
-const CLOUD_PARALLAX: f32 = 0.2;
 /// Each slot this wide may hold one cloud.
 const CLOUD_SLOT: f32 = 260.0;
 const CLOUD_SIZE: (f32, f32) = (46.0, 14.0);
@@ -202,13 +208,13 @@ impl Renderer {
         g.begin(c.bg, area);
 
         if game.night > 0.0 {
-            sky(g, area, shown, game.night, game.moon_phase(), &c);
+            sky(g, shown, game, &c);
         }
         let reveal = game.reveal();
         if let Some(art) = self.banner.as_ref().filter(|_| reveal >= 1.0) {
             banner(g, art, shown, &c);
         }
-        clouds(g, shown, game.distance, &c);
+        clouds(g, shown, game.clouds, &c);
         ground(g, shown, game.distance, &c);
         for o in &game.obstacles {
             if shown.intersects_x(o.x, o.size().0) {
@@ -296,23 +302,28 @@ impl Renderer {
 }
 
 /// The moon and stars fade in with the night, as in Chrome.
-fn sky(g: &mut Gfx, area: view::Rect, shown: view::Rect, night: f32, phase: usize, c: &Colors) {
-    let fade = |col: Color| Color::new(col.r, col.g, col.b, night);
+/// The moon and stars drift left while it is night, wrapping round, and
+/// the stars move to new places each night, as in Chrome.
+fn sky(g: &mut Gfx, shown: view::Rect, game: &Game, c: &Colors) {
+    let fade = |col: Color| Color::new(col.r, col.g, col.b, game.night);
+    // Wraps a drifting x so it re-enters from the right of the shown area.
+    let drift = |start: f32, speed: f32, w: f32| {
+        let span = shown.w + 2.0 * w;
+        shown.x - w + (start - speed * game.sky_time).rem_euclid(span)
+    };
+    let star = &sprites::sheet().star;
     for i in 0..STAR_COUNT {
-        let h = hash(i + 1000);
-        let x = area.x + (h % 1000) as f32 / 1000.0 * area.w;
-        let y = 20.0 + ((h >> 10) % 140) as f32;
-        if shown.intersects_x(x, 2.0) {
-            g.rect(x, y, 2.0, 2.0, fade(c.faint));
-        }
+        let h = hash(i64::from(game.moon_phase() as u32) * STAR_COUNT + i + 1000);
+        let start = (h % 1000) as f32 / 1000.0 * shown.w;
+        let x = drift(start, STAR_SPEED, 9.0);
+        let y = 20.0 + ((h >> 10) % 100) as f32;
+        sprite(g, star, x, y, 9.0, 9.0, fade(c.faint), fade(c.faint));
     }
-    let (moon_x, moon_y, r) = (area.x + area.w * 0.75, 70.0, 16.0);
-    if !shown.intersects_x(moon_x - r, r * 2.0) {
-        return;
-    }
+    let r = 16.0;
+    let (moon_x, moon_y) = (drift(shown.w * 0.75, MOON_SPEED, 2.0 * r) + r, 70.0);
     g.circle(moon_x, moon_y, r, fade(c.fg));
     // Covering part of the full moon with the sky colour leaves the phase.
-    if let Some(dx) = MOON_SHADOWS[phase] {
+    if let Some(dx) = MOON_SHADOWS[game.moon_phase()] {
         g.circle(moon_x + dx, moon_y - 3.0, r, c.bg);
     }
 }
@@ -347,8 +358,7 @@ fn blinking(t: f64) -> bool {
     false
 }
 
-fn clouds(g: &mut Gfx, area: view::Rect, distance: f32, c: &Colors) {
-    let scrolled = distance * CLOUD_PARALLAX;
+fn clouds(g: &mut Gfx, area: view::Rect, scrolled: f32, c: &Colors) {
     let first = ((area.x + scrolled) / CLOUD_SLOT).floor() as i64 - 1;
     let last = ((area.x + area.w + scrolled) / CLOUD_SLOT).ceil() as i64;
     for slot in first..=last {
@@ -430,6 +440,22 @@ fn ground(g: &mut Gfx, area: view::Rect, distance: f32, c: &Colors) {
     // Lines are centred on their y, so shifting down by half the thickness
     // keeps the ground under the rex's feet instead of over them.
     g.rect(area.x, GROUND_Y, area.w, 2.0, c.fg);
+
+    // Bumps in the line, in stretches that are bumpy or flat at random.
+    let first = ((area.x + distance) / BUMP_SLOT).floor() as i64 - 1;
+    let last = ((area.x + area.w + distance) / BUMP_SLOT).ceil() as i64;
+    for slot in first..=last {
+        let stretch = (slot as f32 * BUMP_SLOT / GROUND_STRETCH).floor() as i64;
+        let h = hash(slot + 3000);
+        if hash(stretch + 7000).is_multiple_of(2) || h.is_multiple_of(3) {
+            continue;
+        }
+        let x = slot as f32 * BUMP_SLOT - distance + (h >> 4) as f32 % (BUMP_SLOT - 8.0);
+        if area.intersects_x(x, 8.0) {
+            g.rect(x, GROUND_Y - 1.0, 8.0, 1.0, c.fg);
+            g.rect(x + 2.0, GROUND_Y - 2.0, 4.0, 1.0, c.fg);
+        }
+    }
 
     // Pebbles below the line are what make the ground visibly move.
     let first = ((area.x + distance) / PEBBLE_SLOT).floor() as i64 - 1;

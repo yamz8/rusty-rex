@@ -208,6 +208,19 @@ pub const CLOUD: Grid = &[
     "#######################",
 ];
 
+/// A twinkling star for the night sky, as in Chrome.
+pub const STAR: Grid = &[
+    "....#....",
+    "....#....",
+    "...###...",
+    "..#####..",
+    "#########",
+    "..#####..",
+    "...###...",
+    "....#....",
+    "....#....",
+];
+
 /// The restart button under GAME OVER: an arrow going round, as in Chrome.
 pub const RESTART: Grid = &[
     "......######......",
@@ -334,6 +347,7 @@ pub struct Sheet {
     pub pterodactyl_wings_down: Sprite,
     pub cloud: Sprite,
     pub restart: Sprite,
+    pub star: Sprite,
 }
 
 const LEGS: [Legs; 3] = [Legs::Down, Legs::BackUp, Legs::FrontUp];
@@ -362,6 +376,7 @@ impl Sheet {
             pterodactyl_wings_down: Sprite::new(PTERODACTYL_WINGS_DOWN),
             cloud: Sprite::new(CLOUD),
             restart: Sprite::new(RESTART),
+            star: Sprite::new(STAR),
         }
     }
 
