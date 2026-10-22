@@ -5,8 +5,8 @@
 //! random generator, so they even see obstacles that haven't spawned yet, and
 //! the rex never crashes on a course it could clear.
 
-use crate::game::{Game, State};
-use crate::rex::Input;
+use crate::game::{Game, REX_X, State};
+use crate::rex::{Input, MIN_JUMP_HEIGHT};
 
 /// How far ahead each move is tried. It must be longer than a full jump
 /// (about 0.55 s), or a jump started too late would still look safe.
@@ -23,11 +23,17 @@ enum Move {
     Duck,
     /// Take off, or keep holding for a full jump.
     Jump,
+    /// Take off and let go as soon as Chrome lets that cut the jump short,
+    /// for the quickest hop: about 0.4 s against a full jump's 0.55.
+    Hop,
 }
 
 /// What to try on the ground once running no longer works: ducking under a
-/// pterodactyl is what a person would do when both would work.
-const DODGES: [Move; 2] = [Move::Duck, Move::Jump];
+/// pterodactyl is what a person would do when both would work, and a full
+/// jump over a short hop.
+const DODGES: [Move; 3] = [Move::Duck, Move::Jump, Move::Hop];
+/// Once a jump lands or an obstacle goes by, any move may come next.
+const NEXT: [Move; 4] = [Move::Run, Move::Duck, Move::Jump, Move::Hop];
 /// In the air, holding on for a full jump comes first, since that is what
 /// the rex took off for; letting go or dropping are for tight spots.
 const IN_THE_AIR: [Move; 3] = [Move::Jump, Move::Run, Move::Duck];
@@ -35,18 +41,21 @@ const IN_THE_AIR: [Move; 3] = [Move::Jump, Move::Run, Move::Duck];
 impl Move {
     /// The input on the tick the move starts.
     fn input(self) -> Input {
+        let takes_off = matches!(self, Move::Jump | Move::Hop);
         Input {
-            jump: self == Move::Jump,
+            jump: takes_off,
             duck: self == Move::Duck,
-            jump_pressed: self == Move::Jump,
+            jump_pressed: takes_off,
             restart: false,
         }
     }
 
     /// The input while the move is kept up. A press on every tick would take
     /// off again the moment the rex lands.
-    fn held(self) -> Input {
+    fn held(self, game: &Game) -> Input {
+        let hopping = self == Move::Hop && game.rex.height <= MIN_JUMP_HEIGHT;
         Input {
+            jump: self == Move::Jump || hopping,
             jump_pressed: false,
             ..self.input()
         }
@@ -57,7 +66,7 @@ impl Move {
         if game.rex.on_ground() {
             self.input()
         } else {
-            self.held()
+            self.held(game)
         }
     }
 }
@@ -93,29 +102,46 @@ pub fn input(game: &Game, dt: f32) -> Input {
 /// down, which looks oddly early.
 fn can_wait(game: &Game, dt: f32, ticks: u32) -> bool {
     let mut next = game.clone();
-    next.update(dt, Move::Run.held());
+    next.update(dt, Move::Run.held(game));
     next.state == State::Running && DODGES.into_iter().any(|m| survives(&next, m, dt, ticks))
 }
 
 /// Whether starting `m` and keeping it up for `ticks` ticks avoids a crash.
-/// Holding jump after landing doesn't take off again, so a jump is one full
-/// jump, then running.
+/// Chrome's gaps can be shorter than the look-ahead, so once a jump lands
+/// or an obstacle goes by, whichever move gets past the next one follows.
 fn survives(game: &Game, m: Move, dt: f32, ticks: u32) -> bool {
     let mut game = game.clone();
     let mut input = m.input_for(&game);
-    for _ in 0..ticks {
+    for tick in 1..=ticks {
+        let airborne = !game.rex.on_ground();
+        let ahead = obstacles_ahead(&game);
         game.update(dt, input);
-        input = m.held();
+        input = m.held(&game);
         if game.state != State::Running {
             return false;
+        }
+        let landed = airborne && game.rex.on_ground();
+        let passed = game.rex.on_ground() && obstacles_ahead(&game) < ahead;
+        if landed || passed {
+            let rest = ticks - tick;
+            return rest == 0 || NEXT.into_iter().any(|next| survives(&game, next, dt, rest));
         }
     }
     true
 }
 
+/// Obstacles the rex has yet to get past.
+fn obstacles_ahead(game: &Game) -> usize {
+    game.obstacles.iter().filter(|o| o.right() > REX_X).count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rex::STANDING_SIZE;
+
+    /// A full jump lasts about this long.
+    const FULL_JUMP: f32 = 0.6;
     use crate::clock::TICK;
     use crate::game::Event;
 
@@ -138,8 +164,10 @@ mod tests {
     #[test]
     fn survives_long_runs_past_top_speed() {
         // Five minutes reaches top speed after about two, with pterodactyls
-        // in every lane and the widest cactus groups along the way.
-        for seed in 1..=8 {
+        // in every lane and the widest cactus groups along the way. Seeds
+        // far apart, since nearby ones once hid a planner that couldn't
+        // follow one jump with another.
+        for seed in (1..=8).map(|s| s * 7919) {
             let mut game = Game::new(seed);
             autoplay(&mut game, 300.0);
             assert_eq!(game.state, State::Running, "seed {seed} crashed");
@@ -147,9 +175,11 @@ mod tests {
     }
 
     #[test]
-    fn lands_before_jumping_again() {
-        // Taking off the tick after landing means the jump before came too
-        // early and fell short of the obstacle it was meant to clear.
+    fn jumps_again_on_landing_only_when_it_must() {
+        // Chrome's gaps can be shorter than a jump, so taking off the tick
+        // after landing is sometimes the only way through. When the next
+        // obstacle is further than a full jump, it means the jump before
+        // came too early.
         for seed in 1..=8 {
             let mut game = Game::new(seed);
             let mut was_on_ground = true;
@@ -157,9 +187,17 @@ mod tests {
                 let landed = game.rex.on_ground() && !was_on_ground;
                 was_on_ground = game.rex.on_ground();
                 let input = input(&game, TICK);
+                let before = game.clone();
                 game.update(TICK, input);
                 let jumped = game.events.drain(..).any(|e| e == Event::Jump);
-                assert!(!(landed && jumped), "seed {seed} bounced at tick {tick}");
+                if landed && jumped {
+                    let next = before.obstacles.iter().find(|o| o.right() > REX_X);
+                    let room = next.map_or(f32::INFINITY, |o| o.x - REX_X - STANDING_SIZE.0);
+                    assert!(
+                        room < before.speed * FULL_JUMP,
+                        "seed {seed} bounced at tick {tick} with {room} px to spare"
+                    );
+                }
             }
         }
     }
