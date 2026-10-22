@@ -1,0 +1,10 @@
+# Shared by the executable bin/ scripts. An installed shim can exist without
+# a configured toolchain, so check that cargo actually runs before trusting it.
+if ! cargo --version >/dev/null 2>&1; then
+  if [ -x "$HOME/.cargo/bin/cargo" ] && "$HOME/.cargo/bin/cargo" --version >/dev/null 2>&1; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+  else
+    printf 'rusty-rex: no working Cargo toolchain; configure Rust or install rustup.\n' >&2
+    return 1
+  fi
+fi

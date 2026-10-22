@@ -4,23 +4,26 @@ mod game;
 mod obstacle;
 mod palette;
 mod rex;
+mod session;
 mod sound;
 mod sprites;
 mod storage;
 mod theme;
 mod view;
 
-use clock::{Clock, TICK};
-use game::{Event, Game};
+use game::{Event, Game, State};
 use macroquad::audio::{Sound, load_sound_from_bytes, play_sound_once};
 use macroquad::prelude::*;
 use palette::Palette;
 use rex::Input;
+use session::Session;
 use std::path::PathBuf;
 use view::{PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
 
 /// How often to check whether the Omarchy theme changed.
 const THEME_CHECK_SECONDS: f64 = 1.0;
+/// Bound idle rendering without blocking input or theme checks for long.
+const IDLE_FRAME_SECONDS: f64 = 1.0 / 30.0;
 
 fn window_conf() -> Conf {
     Conf {
@@ -35,6 +38,7 @@ fn read_input() -> Input {
     Input {
         jump: is_key_down(KeyCode::Space) || is_key_down(KeyCode::Up),
         duck: is_key_down(KeyCode::Down),
+        jump_pressed: is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::Up),
     }
 }
 
@@ -122,7 +126,7 @@ async fn main() {
     if let Some(path) = &score_path {
         game.high_score = storage::load(path);
     }
-    let mut saved_high_score = game.high_score;
+    let mut score_saver = storage::ScoreSaver::new(game.high_score);
     let sounds = Sounds::load().await;
     if sounds.is_none() {
         eprintln!("rusty-rex: couldn't load sounds, playing silent");
@@ -130,37 +134,40 @@ async fn main() {
     let mut theme = Theme::new();
     // Muting lasts until the game closes.
     let mut muted = false;
-    let mut clock = Clock::default();
+    let mut session = Session::default();
+    let mut renderer = draw::Renderer::new();
+    let mut previous_frame = get_time();
     loop {
-        let input = read_input();
-        if is_key_pressed(KeyCode::P) {
-            game.toggle_pause();
-        }
+        let now = get_time();
+        let elapsed = (now - previous_frame) as f32;
+        previous_frame = now;
+        session.advance(&mut game, elapsed, read_input(), is_key_pressed(KeyCode::P));
         if is_key_pressed(KeyCode::M) {
             muted = !muted;
-        }
-        for _ in 0..clock.advance(get_frame_time()) {
-            game.update(TICK, input);
         }
         for event in game.events.drain(..) {
             if let Some(sounds) = sounds.as_ref().filter(|_| !muted) {
                 sounds.play(event);
             }
         }
-        if game.high_score > saved_high_score {
-            saved_high_score = game.high_score;
-            // Losing a high score isn't worth crashing the game over.
-            if let Some(path) = &score_path
-                && let Err(e) = storage::save(path, saved_high_score)
-            {
-                eprintln!(
-                    "rusty-rex: couldn't save high score to {}: {e}",
-                    path.display()
-                );
-            }
+        // Losing a high score isn't worth crashing the game over.
+        if let Some(path) = &score_path
+            && let Err(e) = score_saver.save_if_needed(path, game.high_score, now)
+        {
+            eprintln!(
+                "rusty-rex: couldn't save high score to {}: {e}",
+                path.display()
+            );
         }
-        theme.refresh(get_time());
-        draw::frame(&game, theme.palette, muted);
+        theme.refresh(now);
+        renderer.frame(&game, theme.palette, muted);
+        if game.state != State::Running {
+            // Miniquad 0.4.11 cannot wake a blocked X11 event loop from a
+            // timer. A short idle sleep also keeps theme polling and save
+            // retries working, without a platform-specific wakeup thread.
+            let remaining = (IDLE_FRAME_SECONDS - (get_time() - now)).max(0.0);
+            std::thread::sleep(std::time::Duration::from_secs_f64(remaining));
+        }
         next_frame().await;
     }
 }

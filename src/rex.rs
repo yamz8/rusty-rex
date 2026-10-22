@@ -26,6 +26,8 @@ pub const DUCKING_SIZE: (f32, f32) = (59.0, 30.0);
 pub struct Input {
     pub jump: bool,
     pub duck: bool,
+    /// A press since the last physics tick, even if already released.
+    pub jump_pressed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,7 +90,7 @@ impl Rex {
     }
 
     pub fn update(&mut self, dt: f32, input: Input) {
-        let jump_pressed = input.jump && !self.jump_was_down;
+        let jump_pressed = input.jump_pressed || (input.jump && !self.jump_was_down);
         self.jump_was_down = input.jump;
 
         if self.on_ground() {
@@ -116,7 +118,7 @@ impl Rex {
             };
             self.velocity -= gravity * dt;
             self.height += self.velocity * dt;
-            if self.height <= 0.0 {
+            if self.height <= 0.0 && self.velocity <= 0.0 {
                 // The rex reached the ground partway through this step; the
                 // rest of the step is spent running rather than dropped.
                 let below = (self.height / self.velocity).clamp(0.0, dt);
@@ -151,14 +153,17 @@ mod tests {
 
     const DT: f32 = 1.0 / 120.0;
     const JUMP: Input = Input {
+        jump_pressed: false,
         jump: true,
         duck: false,
     };
     const DUCK: Input = Input {
+        jump_pressed: false,
         jump: false,
         duck: true,
     };
     const NONE: Input = Input {
+        jump_pressed: false,
         jump: false,
         duck: false,
     };
@@ -284,6 +289,7 @@ mod tests {
         let (_, fast_time) = fly(
             &mut fast,
             Input {
+                jump_pressed: false,
                 jump: true,
                 duck: true,
             },
@@ -341,6 +347,7 @@ mod tests {
         rex.update(
             DT,
             Input {
+                jump_pressed: false,
                 jump: true,
                 duck: true,
             },

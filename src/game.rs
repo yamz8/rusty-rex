@@ -115,7 +115,7 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32, input: Input) {
-        let jump_pressed = input.jump && !self.jump_was_down;
+        let jump_pressed = input.jump_pressed || (input.jump && !self.jump_was_down);
         self.jump_was_down = input.jump;
 
         match self.state {
@@ -239,14 +239,17 @@ mod tests {
 
     const DT: f32 = 1.0 / 120.0;
     const NONE: Input = Input {
+        jump_pressed: false,
         jump: false,
         duck: false,
     };
     const JUMP: Input = Input {
+        jump_pressed: false,
         jump: true,
         duck: false,
     };
     const DUCK: Input = Input {
+        jump_pressed: false,
         jump: false,
         duck: true,
     };

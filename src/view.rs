@@ -20,6 +20,14 @@ pub struct Rect {
     pub h: f32,
 }
 
+impl Rect {
+    /// Includes partially visible sprites, while rejecting ones entirely
+    /// outside the viewport, including those only touching its boundary.
+    pub fn intersects_x(self, x: f32, width: f32) -> bool {
+        x < self.x + self.w && x + width > self.x
+    }
+}
+
 /// The playfield area a window of this size should show.
 ///
 /// The playfield is scaled as large as it fits without cropping and kept
@@ -133,5 +141,14 @@ mod tests {
     fn ordinary_windows_are_not_cropped() {
         let area = visible_area(1342.0, 718.0);
         assert_eq!(shown(area), area);
+    }
+
+    #[test]
+    fn culling_keeps_partial_sprites_at_both_edges() {
+        let area = shown(visible_area(5000.0, 300.0));
+        assert!(area.intersects_x(area.x - 5.0, 10.0));
+        assert!(area.intersects_x(area.x + area.w - 5.0, 10.0));
+        assert!(!area.intersects_x(area.x - 10.0, 10.0));
+        assert!(!area.intersects_x(area.x + area.w, 10.0));
     }
 }
