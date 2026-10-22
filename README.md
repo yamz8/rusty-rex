@@ -82,4 +82,4 @@ bin/install    # install as an Arch package (shows up in the app launcher)
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The game itself is Chrome's: see [NOTICE](NOTICE).

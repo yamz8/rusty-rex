@@ -1,0 +1,11 @@
+Rusty Rex is a remake of the T-Rex runner, the game Chrome shows when it has
+no internet connection.
+
+    Chromium's dino game
+    https://github.com/chromium/chromium/tree/main/components/neterror/resources/dino_game
+    BSD 3-Clause License, Copyright The Chromium Authors
+
+The game is that project's design: the rex, the cacti and pterodactyls, the
+day and night cycle and the moon's phases, and the speeds, timings and scoring
+this program follows. Rusty Rex reimplements it in Rust and includes none of
+Chromium's source code.

@@ -21,7 +21,8 @@ up in the app launcher.
    `bin/test`, commit "Release X.Y.Z". Any code change after a release
    needs a new version, so one version never names two different builds.
 2. Tag `vX.Y.Z`, push the commit and tag, then `gh release create` with
-   `build/rusty-rex` packed with the desktop entry, icon, LICENSE and README.
+   `build/rusty-rex` packed with the desktop entry, icon, LICENSE, NOTICE
+   and README.
 3. Only now update the AUR package, since its checksum is of GitHub's tarball
    for the pushed tag: set `pkgver` and the sha256 of
    `$url/archive/vX.Y.Z.tar.gz` in `pkgbuild/aur/PKGBUILD`, regenerate
