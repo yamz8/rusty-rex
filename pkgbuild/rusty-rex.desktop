@@ -4,5 +4,6 @@ Name=Rusty Rex
 Comment=The offline dinosaur runner, in Rust
 Exec=rusty-rex
 Icon=rusty-rex
+StartupWMClass=rusty-rex
 Categories=Game;ArcadeGame;
 Terminal=false

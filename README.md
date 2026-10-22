@@ -50,6 +50,13 @@ Or download the x86_64 build, with its desktop entry and icon, from the
 | <kbd>M</kbd>       | Mute                                            |
 | <kbd>Esc</kbd>     | Quit                                            |
 
+## Screensaver
+
+`rusty-rex --screensaver` opens fullscreen and lets the rex play by itself:
+it times every jump and duck, silently, without touching your high score.
+Any key or click quits. Omarchy shows it as the screensaver while you're
+offline.
+
 ## Build from source
 
 Rust comes from `omarchy install dev-env rust`.

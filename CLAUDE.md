@@ -40,6 +40,8 @@ up in the app launcher.
   - `src/obstacle.rs` cacti and pterodactyls, hitboxes, the seeded RNG.
   - `src/clock.rs` fixed 1/120 s physics ticks.
   - `src/session.rs` buffered input, fixed ticks and idle/resume timing.
+  - `src/autopilot.rs` plays by itself for `--screensaver`, trying each
+    move on copies of the game.
   - `src/view.rs` fitting the 960x320 playfield into any window size.
   - `src/palette.rs` colours and the day/night blend.
   - `src/theme.rs` reads the Omarchy theme's `colors.toml`.

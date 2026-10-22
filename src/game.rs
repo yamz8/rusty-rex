@@ -69,7 +69,8 @@ pub enum State {
     Over(f32),
 }
 
-#[derive(Debug)]
+/// Clone lets the autopilot try moves on copies of a run.
+#[derive(Clone, Debug)]
 pub struct Game {
     pub state: State,
     pub rex: Rex,

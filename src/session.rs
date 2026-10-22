@@ -1,5 +1,6 @@
 //! Bridges window frames and input events to fixed physics ticks.
 
+use crate::autopilot;
 use crate::clock::{Clock, TICK};
 use crate::game::{Game, State};
 use crate::rex::Input;
@@ -18,6 +19,24 @@ impl Session {
             jump_pressed: self.input.jump_pressed || input.jump_pressed,
             ..input
         };
+        self.step(game, elapsed, pause, |session, _, _| session.take_input());
+    }
+
+    /// Lets the autopilot play. It decides afresh every tick, since a frame
+    /// can hold several and the right moment to jump falls between them.
+    pub fn autoplay(&mut self, game: &mut Game, elapsed: f32) {
+        self.step(game, elapsed, false, |_, game, dt| {
+            autopilot::input(game, dt)
+        });
+    }
+
+    fn step(
+        &mut self,
+        game: &mut Game,
+        elapsed: f32,
+        pause: bool,
+        mut input: impl FnMut(&mut Self, &Game, f32) -> Input,
+    ) {
         let was_running = game.state == State::Running;
         if pause {
             game.toggle_pause();
@@ -33,11 +52,11 @@ impl Session {
             } else {
                 TICK
             };
-            let input = self.take_input();
+            let input = input(self, game, dt);
             game.update(dt, input);
         } else {
             for _ in 0..self.clock.advance(elapsed) {
-                let input = self.take_input();
+                let input = input(self, game, TICK);
                 game.update(TICK, input);
             }
         }

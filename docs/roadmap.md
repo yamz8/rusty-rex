@@ -11,3 +11,4 @@
 - [x] Esc to quit, and a click jumps like Space
 - [x] Moon phases that change each night, as in Chrome
 - [x] Rex blinks now and then on the start screen
+- [x] `--screensaver`: the rex plays by itself until any key or click

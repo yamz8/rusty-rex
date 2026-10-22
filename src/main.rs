@@ -1,3 +1,4 @@
+mod autopilot;
 mod clock;
 mod draw;
 mod game;
@@ -26,13 +27,47 @@ const THEME_CHECK_SECONDS: f64 = 1.0;
 /// Bound idle rendering without blocking input or theme checks for long.
 const IDLE_FRAME_SECONDS: f64 = 1.0 / 30.0;
 
-fn window_conf(linux_backend: LinuxBackend) -> Conf {
+/// Omarchy's screensaver windows share this class, which its window rules
+/// make fullscreen and its idle service watches.
+const SCREENSAVER_CLASS: &str = "org.omarchy.screensaver";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    Play,
+    /// The rex plays itself, silently and without touching the high score,
+    /// until any key or click.
+    Screensaver,
+}
+
+fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Mode, String> {
+    let mut mode = Mode::Play;
+    for arg in args {
+        match arg.as_str() {
+            "--screensaver" => mode = Mode::Screensaver,
+            _ => {
+                return Err(format!(
+                    "unknown argument {arg}; usage: rusty-rex [--screensaver]"
+                ));
+            }
+        }
+    }
+    Ok(mode)
+}
+
+fn window_conf(linux_backend: LinuxBackend, mode: Mode) -> Conf {
     Conf {
         window_title: "Rusty Rex".to_owned(),
         window_width: PLAYFIELD_WIDTH as i32,
         window_height: PLAYFIELD_HEIGHT as i32,
+        fullscreen: mode == Mode::Screensaver,
         platform: Platform {
             linux_backend,
+            // Playing matches the desktop entry's StartupWMClass, so docks
+            // show the icon; the screensaver joins Omarchy's own windows.
+            linux_wm_class: match mode {
+                Mode::Play => "rusty-rex",
+                Mode::Screensaver => SCREENSAVER_CLASS,
+            },
             ..Default::default()
         },
         ..Default::default()
@@ -137,7 +172,23 @@ impl Theme {
     }
 }
 
+/// Whether the viewer touched anything this frame, which ends the
+/// screensaver. Moving the mouse doesn't count, as with Omarchy's own.
+fn any_input() -> bool {
+    get_last_key_pressed().is_some()
+        || [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
+            .into_iter()
+            .any(is_mouse_button_pressed)
+}
+
 fn main() {
+    let mode = match parse_args(std::env::args().skip(1)) {
+        Ok(mode) => mode,
+        Err(e) => {
+            eprintln!("rusty-rex: {e}");
+            std::process::exit(2);
+        }
+    };
     let backend = linux_backend(
         std::env::var_os("DISPLAY").is_some(),
         std::env::var_os("WAYLAND_DISPLAY").is_some(),
@@ -148,22 +199,28 @@ fn main() {
         eprintln!("rusty-rex: no display found; run it from a graphical session");
         std::process::exit(1);
     };
-    macroquad::Window::from_config(window_conf(backend), run());
+    macroquad::Window::from_config(window_conf(backend, mode), run(mode));
 }
 
-async fn run() {
+async fn run(mode: Mode) {
+    let screensaver = mode == Mode::Screensaver;
     // Any changing seed will do; it only decides the order of obstacles.
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
     let mut game = Game::new(seed);
-    let score_path = storage::default_high_score_path();
+    // The autopilot's scores aren't the player's.
+    let score_path = storage::default_high_score_path().filter(|_| !screensaver);
     if let Some(path) = &score_path {
         game.high_score = storage::load(path);
     }
     let mut score_saver = storage::ScoreSaver::new(game.high_score);
-    let sounds = Sounds::load().await;
-    if sounds.is_none() {
+    let sounds = if screensaver {
+        None
+    } else {
+        Sounds::load().await
+    };
+    if sounds.is_none() && !screensaver {
         eprintln!("rusty-rex: couldn't load sounds, playing silent");
     }
     let mut theme = Theme::new();
@@ -171,14 +228,24 @@ async fn run() {
     let mut muted = false;
     let mut session = Session::default();
     let mut renderer = draw::Renderer::new();
+    if screensaver {
+        show_mouse(false);
+    }
     let mut previous_frame = get_time();
     // Returning ends macroquad's main future, which closes the window. The
     // high score is already saved by the frame that set it.
-    while !is_key_pressed(KeyCode::Escape) {
+    loop {
+        if is_key_pressed(KeyCode::Escape) || (screensaver && any_input()) {
+            break;
+        }
         let now = get_time();
         let elapsed = (now - previous_frame) as f32;
         previous_frame = now;
-        session.advance(&mut game, elapsed, read_input(), is_key_pressed(KeyCode::P));
+        if screensaver {
+            session.autoplay(&mut game, elapsed);
+        } else {
+            session.advance(&mut game, elapsed, read_input(), is_key_pressed(KeyCode::P));
+        }
         if is_key_pressed(KeyCode::M) {
             muted = !muted;
         }
@@ -218,6 +285,17 @@ mod tests {
         assert_eq!(linux_backend(true, true), Some(LinuxBackend::X11Only));
         assert_eq!(linux_backend(true, false), Some(LinuxBackend::X11Only));
         assert_eq!(linux_backend(false, true), Some(LinuxBackend::WaylandOnly));
+    }
+
+    fn args(list: &[&str]) -> Result<Mode, String> {
+        parse_args(list.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn parses_the_screensaver_flag() {
+        assert_eq!(args(&[]), Ok(Mode::Play));
+        assert_eq!(args(&["--screensaver"]), Ok(Mode::Screensaver));
+        assert!(args(&["--screen"]).is_err());
     }
 
     #[test]
