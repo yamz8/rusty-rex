@@ -47,6 +47,7 @@ pub fn save(path: &Path, score: u32) -> io::Result<()> {
 pub struct ScoreSaver {
     saved: u32,
     retry_at: f64,
+    failing: bool,
 }
 
 impl ScoreSaver {
@@ -54,9 +55,13 @@ impl ScoreSaver {
         Self {
             saved,
             retry_at: 0.0,
+            failing: false,
         }
     }
 
+    /// Only the first failure in a row is returned, so a lasting problem such
+    /// as a read-only data directory is reported once rather than on every
+    /// retry.
     pub fn save_if_needed(&mut self, path: &Path, score: u32, now: f64) -> io::Result<()> {
         if score <= self.saved || now < self.retry_at {
             return Ok(());
@@ -64,12 +69,17 @@ impl ScoreSaver {
         match save(path, score) {
             Ok(()) => {
                 self.saved = score;
+                self.failing = false;
                 Ok(())
             }
             Err(error) => {
-                // Avoid retrying disk I/O and logging on every frame.
+                // Avoid retrying disk I/O on every frame.
                 self.retry_at = now + 5.0;
-                Err(error)
+                if std::mem::replace(&mut self.failing, true) {
+                    Ok(())
+                } else {
+                    Err(error)
+                }
             }
         }
     }
@@ -160,5 +170,25 @@ mod tests {
         saver.save_if_needed(&path, 100, 5.0).unwrap();
         assert_eq!(load(&path), 100);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_lasting_failure_is_reported_once_per_streak() {
+        let dir = scratch("report-once");
+        fs::write(&dir, "blocks directory creation").unwrap();
+        let path = dir.join("high-score");
+        let mut saver = ScoreSaver::new(0);
+        assert!(saver.save_if_needed(&path, 100, 0.0).is_err());
+        saver.save_if_needed(&path, 100, 5.0).unwrap();
+        saver.save_if_needed(&path, 100, 10.0).unwrap();
+        assert!(!path.exists());
+
+        // After a success, a new failure is worth reporting again.
+        fs::remove_file(&dir).unwrap();
+        saver.save_if_needed(&path, 100, 15.0).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        fs::write(&dir, "blocks directory creation").unwrap();
+        assert!(saver.save_if_needed(&path, 200, 20.0).is_err());
+        fs::remove_file(dir).unwrap();
     }
 }

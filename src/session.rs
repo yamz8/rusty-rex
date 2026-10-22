@@ -26,11 +26,12 @@ impl Session {
         if game.state != State::Running || !was_running {
             self.clock = Clock::default();
             // Idle time advances the restart delay, never the world. Starting
-            // or resuming after an idle wakeup must not fast-forward a run.
+            // or resuming after an idle wakeup plays one tick rather than
+            // fast-forwarding the run by the whole idle time.
             let dt = if matches!(game.state, State::Over(_)) {
                 elapsed
             } else {
-                0.0
+                TICK
             };
             let input = self.take_input();
             game.update(dt, input);
@@ -97,10 +98,11 @@ mod tests {
         let mut game = Game::new(1);
         session.advance(&mut game, 60.0, TAP, false);
         assert_eq!(game.state, State::Running);
-        assert_eq!(game.distance, 0.0);
-        assert_eq!(game.rex.pose, Pose::Jumping);
-        session.advance(&mut game, TICK, Input::default(), false);
         assert!(game.distance > 0.0 && game.distance < 4.0);
+        assert_eq!(game.rex.pose, Pose::Jumping);
+        let distance = game.distance;
+        session.advance(&mut game, TICK, Input::default(), false);
+        assert!(game.distance > distance && game.distance < 2.0 * distance + 1.0);
     }
 
     #[test]
@@ -111,10 +113,11 @@ mod tests {
         session.advance(&mut game, TICK, TAP, true);
         session.advance(&mut game, 60.0, Input::default(), true);
         assert_eq!(game.state, State::Running);
-        assert_eq!(game.distance, 0.0);
+        assert!(game.distance > 0.0 && game.distance < 4.0);
         assert_eq!(game.rex.pose, Pose::Running);
+        let distance = game.distance;
         session.advance(&mut game, TICK / 2.0, Input::default(), false);
-        assert_eq!(game.distance, 0.0);
+        assert_eq!(game.distance, distance);
     }
 
     #[test]

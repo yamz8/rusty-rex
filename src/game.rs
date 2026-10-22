@@ -91,6 +91,10 @@ pub struct Game {
     until_spawn: f32,
     /// The last two kinds spawned, newest last.
     recent: Vec<Kind>,
+    /// Jump was held last update. Starting, restarting and take-off need a
+    /// fresh press, otherwise holding the key would bounce the rex the moment
+    /// it lands. This also sees the key while paused, so a key held through
+    /// a pause doesn't count as a press on resuming.
     jump_was_down: bool,
 }
 
@@ -115,12 +119,15 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32, input: Input) {
-        let jump_pressed = input.jump_pressed || (input.jump && !self.jump_was_down);
+        let input = Input {
+            jump_pressed: input.jump_pressed || (input.jump && !self.jump_was_down),
+            ..input
+        };
         self.jump_was_down = input.jump;
 
         match self.state {
             State::Waiting => {
-                if jump_pressed {
+                if input.jump_pressed {
                     self.state = State::Running;
                     self.run(dt, input);
                 }
@@ -130,7 +137,7 @@ impl Game {
             State::Over(since) => {
                 let since = since + dt;
                 self.state = State::Over(since);
-                if jump_pressed && since >= RESTART_DELAY {
+                if input.jump_pressed && since >= RESTART_DELAY {
                     self.restart();
                 }
             }
@@ -142,14 +149,7 @@ impl Game {
     pub fn toggle_pause(&mut self) {
         self.state = match self.state {
             State::Running => State::Paused,
-            State::Paused => {
-                // The rex didn't see jump while paused, so a key held through
-                // the pause would otherwise look like a fresh press.
-                if self.jump_was_down {
-                    self.rex.ignore_held_jump();
-                }
-                State::Running
-            }
+            State::Paused => State::Running,
             other => other,
         };
     }
@@ -227,7 +227,6 @@ impl Game {
             ..Self::new(0)
         };
         self.jump_was_down = true;
-        self.rex.ignore_held_jump();
     }
 }
 
@@ -500,6 +499,19 @@ mod tests {
         game.events.clear();
         play(&mut game, |_| NONE);
         assert_eq!(game.events, vec![Event::Crash]);
+    }
+
+    #[test]
+    fn holding_jump_does_not_bounce_after_landing() {
+        let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        game.events.clear();
+        run(&mut game, 2.0, JUMP);
+        assert_eq!(game.rex.pose, Pose::Running);
+        assert_eq!(game.events, vec![Event::Jump]);
+
+        game.update(DT, NONE);
+        game.update(DT, JUMP);
+        assert_eq!(game.rex.pose, Pose::Jumping);
     }
 
     #[test]

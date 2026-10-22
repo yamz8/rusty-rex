@@ -21,8 +21,8 @@ pub struct Rect {
 }
 
 impl Rect {
-    /// Includes partially visible sprites, while rejecting ones entirely
-    /// outside the viewport, including those only touching its boundary.
+    /// Whether a sprite spanning `x..x + width` shows inside this rect. A
+    /// partly visible sprite counts, but one that only touches an edge doesn't.
     pub fn intersects_x(self, x: f32, width: f32) -> bool {
         x < self.x + self.w && x + width > self.x
     }
