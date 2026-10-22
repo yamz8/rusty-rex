@@ -1,9 +1,10 @@
 //! Everything that puts pixels on screen. Game state is only read here.
 
-use macroquad::prelude::*;
 use std::fmt::Write;
 
+use crate::font;
 use crate::game::{Game, MILESTONE_FLASH, MOON_PHASES, REX_X, State};
+use crate::gfx::{Color, Gfx};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
 use crate::rex::{Pose, Rex};
@@ -43,7 +44,7 @@ const BANNER_MAX: (f32, f32) = (0.6 * view::PLAYFIELD_WIDTH, 100.0);
 /// The banner is backdrop, so it is drawn well under the faint colour.
 const BANNER_ALPHA: f32 = 0.35;
 
-/// The frame's colours, converted once for macroquad.
+/// The frame's colours, converted once for drawing.
 struct Colors {
     bg: Color,
     fg: Color,
@@ -55,12 +56,19 @@ fn color(c: Rgb) -> Color {
     Color::new(c.r, c.g, c.b, 1.0)
 }
 
-/// Formatting and measurement are only needed when a displayed score changes.
+/// Score digits are this many screen pixels to a font pixel, which makes
+/// them 10 wide like Chrome's.
+const SCORE_PX: f32 = 2.0;
+/// Font pixel sizes for headings and the lines under them.
+const TITLE_PX: f32 = 3.0;
+const LINE_PX: f32 = 2.0;
+
+/// Formatting and layout are only needed when a displayed score changes.
 struct ScoreText {
     value: Option<u32>,
     prefix: &'static str,
     text: String,
-    width: f32,
+    art: Sprite,
 }
 
 impl ScoreText {
@@ -69,53 +77,69 @@ impl ScoreText {
             value: None,
             prefix,
             text: String::with_capacity(16),
-            width: 0.0,
+            art: font::text(""),
         }
     }
 
-    fn update(&mut self, value: u32, measure: impl FnOnce(&str) -> f32) {
+    fn update(&mut self, value: u32) {
         if self.value == Some(value) {
             return;
         }
         self.text.clear();
         write!(self.text, "{}{:05}", self.prefix, value).unwrap();
-        self.width = measure(&self.text);
+        self.art = font::text(&self.text);
         self.value = Some(value);
+    }
+
+    fn width(&self) -> f32 {
+        self.art.cols as f32 * SCORE_PX
+    }
+
+    fn draw(&self, g: &mut Gfx, x: f32, y: f32, col: Color) {
+        text(g, &self.art, x, y, SCORE_PX, col);
     }
 }
 
+/// A fixed line of text, laid out once.
 struct Label {
-    text: &'static str,
-    size: f32,
-    width: f32,
+    art: Sprite,
+    px: f32,
 }
 
 impl Label {
-    fn new(text: &'static str, size: f32) -> Self {
+    fn new(text: &str, px: f32) -> Self {
         Self {
-            text,
-            size,
-            width: measure_text(text, None, size as u16, 1.0).width,
+            art: font::text(text),
+            px,
         }
     }
 
-    fn centred(&self, y: f32, col: Color) {
-        draw_text(
-            self.text,
-            (view::PLAYFIELD_WIDTH - self.width) / 2.0,
+    /// Draws the label centred across the playfield with its top at `y`.
+    fn centred(&self, g: &mut Gfx, y: f32, col: Color) {
+        let w = self.art.cols as f32 * self.px;
+        text(
+            g,
+            &self.art,
+            (view::PLAYFIELD_WIDTH - w) / 2.0,
             y,
-            self.size,
+            self.px,
             col,
         );
     }
 }
 
+/// Draws laid-out text with its top-left at (x, y).
+fn text(g: &mut Gfx, art: &Sprite, x: f32, y: f32, px: f32, col: Color) {
+    let (w, h) = (art.cols as f32 * px, art.rows as f32 * px);
+    sprite(g, art, x, y, w, h, col, col);
+}
+
 pub struct Renderer {
-    dpi_scale: f32,
     banner: Option<Sprite>,
     current_score: ScoreText,
     high_score: ScoreText,
     start: Label,
+    muted: Label,
     paused: Label,
     resume: Label,
     game_over: Label,
@@ -125,23 +149,29 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(banner: Option<Sprite>) -> Self {
         Self {
-            dpi_scale: screen_dpi_scale(),
             banner,
             current_score: ScoreText::new(""),
             high_score: ScoreText::new("HI "),
-            start: Label::new("Press Space or click to start", 24.0),
-            paused: Label::new("P A U S E D", 32.0),
-            resume: Label::new("Press P to carry on", 20.0),
-            game_over: Label::new("G A M E   O V E R", 32.0),
-            restart: Label::new("Press Space or click to play again", 20.0),
+            start: Label::new("Press Space or click to start", LINE_PX),
+            muted: Label::new("Muted", LINE_PX),
+            paused: Label::new("P A U S E D", TITLE_PX),
+            resume: Label::new("Press P to carry on", LINE_PX),
+            game_over: Label::new("G A M E   O V E R", TITLE_PX),
+            restart: Label::new("Press Space or click to play again", LINE_PX),
         }
     }
 
-    pub fn frame(&mut self, game: &Game, day: Palette, muted: bool) {
-        // Font metrics can change when the window moves between monitors.
-        if self.dpi_scale != screen_dpi_scale() {
-            *self = Self::new(self.banner.take());
-        }
+    /// Draws the game into a `width` x `height` window, `now` seconds after
+    /// it opened.
+    pub fn frame(
+        &mut self,
+        g: &mut Gfx,
+        (width, height): (f32, f32),
+        game: &Game,
+        day: Palette,
+        muted: bool,
+        now: f64,
+    ) {
         let p = day.at_night(game.night);
         let c = Colors {
             bg: color(p.background),
@@ -150,109 +180,104 @@ impl Renderer {
             accent: color(p.accent),
         };
 
-        clear_background(c.bg);
-        let area = view::visible_area(screen_width(), screen_height());
+        let area = view::visible_area(width, height);
         let shown = view::shown(area);
-        let mut camera = Camera2D::from_display_rect(Rect::new(area.x, area.y, area.w, area.h));
-        // from_display_rect flips y for render targets, which turns the scene
-        // upside down when drawing straight to the window, so flip it back.
-        camera.zoom.y = -camera.zoom.y;
-        set_camera(&camera);
+        g.begin(c.bg, area);
 
         if game.night > 0.0 {
-            sky(area, shown, game.night, game.moon_phase(), &c);
+            sky(g, area, shown, game.night, game.moon_phase(), &c);
         }
         if let Some(art) = &self.banner {
-            banner(art, shown, &c);
+            banner(g, art, shown, &c);
         }
-        clouds(shown, game.distance, &c);
-        ground(shown, game.distance, &c);
+        clouds(g, shown, game.distance, &c);
+        ground(g, shown, game.distance, &c);
         for o in &game.obstacles {
             if shown.intersects_x(o.x, o.size().0) {
-                obstacle(o, &c);
+                obstacle(g, o, &c);
             }
         }
-        let blink = game.state == State::Waiting && blinking(get_time());
-        rex(&game.rex, game.state, blink, &c);
-        self.score(game, &c);
+        let blink = game.state == State::Waiting && blinking(now);
+        rex(g, &game.rex, game.state, blink, &c);
+        self.score(g, game, &c);
 
         if muted {
-            draw_text("MUTED", 20.0, 40.0, 18.0, c.faint);
+            let px = self.muted.px;
+            text(g, &self.muted.art, 20.0, 26.0, px, c.faint);
         }
 
         // Cover anything past the widest stretch the game shows, so obstacles
         // can't be seen appearing or vanishing on very wide windows.
         if shown.w < area.w {
             let right = shown.x + shown.w;
-            draw_rectangle(area.x, area.y, shown.x - area.x, area.h, c.bg);
-            draw_rectangle(right, area.y, area.x + area.w - right, area.h, c.bg);
+            g.rect(area.x, area.y, shown.x - area.x, area.h, c.bg);
+            g.rect(right, area.y, area.x + area.w - right, area.h, c.bg);
         }
 
         match game.state {
-            State::Waiting => self.start.centred(150.0, c.fg),
+            State::Waiting => self.start.centred(g, 138.0, c.fg),
             State::Paused => {
-                self.paused.centred(130.0, c.fg);
-                self.resume.centred(165.0, c.fg);
+                self.paused.centred(g, 110.0, c.fg);
+                self.resume.centred(g, 152.0, c.fg);
             }
             State::Over(_) => {
-                self.game_over.centred(130.0, c.fg);
-                self.restart.centred(165.0, c.fg);
+                self.game_over.centred(g, 110.0, c.fg);
+                self.restart.centred(g, 152.0, c.fg);
             }
             State::Running => {}
         }
+        g.end();
     }
 
-    fn score(&mut self, game: &Game, c: &Colors) {
+    fn score(&mut self, g: &mut Gfx, game: &Game, c: &Colors) {
         // Chrome blinks the score on and off a few times at each milestone.
         let blink_off = game.milestone_flash > 0.0
             && ((MILESTONE_FLASH - game.milestone_flash) / 0.2) as u32 % 2 == 1;
-        let size = 22.0;
         let right = view::PLAYFIELD_WIDTH - 20.0;
-        let y = 40.0;
-        let measure = |text: &str| measure_text(text, None, size as u16, 1.0).width;
-        self.current_score.update(game.score(), measure);
+        let y = 26.0;
+        self.current_score.update(game.score());
         let current = &self.current_score;
         if !blink_off {
-            draw_text(&current.text, right - current.width, y, size, c.fg);
+            current.draw(g, right - current.width(), y, c.fg);
         }
         if game.high_score > 0 {
-            self.high_score.update(game.high_score, measure);
+            self.high_score.update(game.high_score);
             let high = &self.high_score;
-            let x = right - current.width - 24.0 - high.width;
-            draw_text(&high.text, x, y, size, c.faint);
+            let x = right - current.width() - 24.0 - high.width();
+            high.draw(g, x, y, c.faint);
         }
     }
 }
 
 /// The moon and stars fade in with the night, as in Chrome.
-fn sky(area: view::Rect, shown: view::Rect, night: f32, phase: usize, c: &Colors) {
+fn sky(g: &mut Gfx, area: view::Rect, shown: view::Rect, night: f32, phase: usize, c: &Colors) {
     let fade = |col: Color| Color::new(col.r, col.g, col.b, night);
     for i in 0..STAR_COUNT {
         let h = hash(i + 1000);
         let x = area.x + (h % 1000) as f32 / 1000.0 * area.w;
         let y = 20.0 + ((h >> 10) % 140) as f32;
         if shown.intersects_x(x, 2.0) {
-            draw_rectangle(x, y, 2.0, 2.0, fade(c.faint));
+            g.rect(x, y, 2.0, 2.0, fade(c.faint));
         }
     }
     let (moon_x, moon_y, r) = (area.x + area.w * 0.75, 70.0, 16.0);
     if !shown.intersects_x(moon_x - r, r * 2.0) {
         return;
     }
-    draw_circle(moon_x, moon_y, r, fade(c.fg));
+    g.circle(moon_x, moon_y, r, fade(c.fg));
     // Covering part of the full moon with the sky colour leaves the phase.
     if let Some(dx) = MOON_SHADOWS[phase] {
-        draw_circle(moon_x + dx, moon_y - 3.0, r, c.bg);
+        g.circle(moon_x + dx, moon_y - 3.0, r, c.bg);
     }
 }
 
 /// Centres the banner in the sky at the largest whole pixel size that fits,
 /// or a fraction of a pixel for art too big for whole ones.
-fn banner(art: &Sprite, shown: view::Rect, c: &Colors) {
+fn banner(g: &mut Gfx, art: &Sprite, shown: view::Rect, c: &Colors) {
     let (w, h) = banner_size(art.cols, art.rows);
     let col = Color::new(c.faint.r, c.faint.g, c.faint.b, BANNER_ALPHA);
     let x = shown.x + (shown.w - w) / 2.0;
-    sprite(art, x, BANNER_TOP, w, h, col, col);
+    sprite(g, art, x, BANNER_TOP, w, h, col, col);
 }
 
 /// The drawn width and height of art this many columns and rows.
@@ -272,7 +297,7 @@ fn blinking(t: f64) -> bool {
     (at..at + BLINK_TIME).contains(&into)
 }
 
-fn clouds(area: view::Rect, distance: f32, c: &Colors) {
+fn clouds(g: &mut Gfx, area: view::Rect, distance: f32, c: &Colors) {
     let scrolled = distance * CLOUD_PARALLAX;
     let first = ((area.x + scrolled) / CLOUD_SLOT).floor() as i64 - 1;
     let last = ((area.x + area.w + scrolled) / CLOUD_SLOT).ceil() as i64;
@@ -287,7 +312,7 @@ fn clouds(area: view::Rect, distance: f32, c: &Colors) {
         let y = 70.0 + ((seed >> 12) % 80) as f32;
         let (w, h) = CLOUD_SIZE;
         if area.intersects_x(x, w) {
-            sprite(&sprites::sheet().cloud, x, y, w, h, c.faint, c.bg);
+            sprite(g, &sprites::sheet().cloud, x, y, w, h, c.faint, c.bg);
         }
     }
 }
@@ -297,7 +322,7 @@ fn top(height: f32, h: f32) -> f32 {
     GROUND_Y - height - h
 }
 
-fn obstacle(o: &Obstacle, c: &Colors) {
+fn obstacle(g: &mut Gfx, o: &Obstacle, c: &Colors) {
     let (w, h) = o.size();
     let y = top(o.bottom, h);
     match o.kind {
@@ -310,7 +335,7 @@ fn obstacle(o: &Obstacle, c: &Colors) {
             };
             let each = w / n as f32;
             for i in 0..n {
-                sprite(art, o.x + i as f32 * each, y, each, h, c.fg, c.bg);
+                sprite(g, art, o.x + i as f32 * each, y, each, h, c.fg, c.bg);
             }
         }
         Kind::Pterodactyl => {
@@ -320,17 +345,18 @@ fn obstacle(o: &Obstacle, c: &Colors) {
             } else {
                 &sheet.pterodactyl_wings_down
             };
-            sprite(art, o.x, y, w, h, c.fg, c.bg);
+            sprite(g, art, o.x, y, w, h, c.fg, c.bg);
         }
     }
 }
 
 /// Stretches a pixel grid over a w x h box with its top-left at (x, y).
-fn sprite(art: &Sprite, x: f32, y: f32, w: f32, h: f32, fill: Color, eye: Color) {
+#[allow(clippy::too_many_arguments)]
+fn sprite(g: &mut Gfx, art: &Sprite, x: f32, y: f32, w: f32, h: f32, fill: Color, eye: Color) {
     let px = w / art.cols as f32;
     let py = h / art.rows as f32;
     for run in &art.runs {
-        draw_rectangle(
+        g.rect(
             x + run.x as f32 * px,
             y + run.y as f32 * py,
             run.len as f32 * px,
@@ -350,17 +376,10 @@ fn hash(n: i64) -> u32 {
     x ^ (x >> 16)
 }
 
-fn ground(area: view::Rect, distance: f32, c: &Colors) {
+fn ground(g: &mut Gfx, area: view::Rect, distance: f32, c: &Colors) {
     // Lines are centred on their y, so shifting down by half the thickness
     // keeps the ground under the rex's feet instead of over them.
-    draw_line(
-        area.x,
-        GROUND_Y + 1.0,
-        area.x + area.w,
-        GROUND_Y + 1.0,
-        2.0,
-        c.fg,
-    );
+    g.rect(area.x, GROUND_Y, area.w, 2.0, c.fg);
 
     // Pebbles below the line are what make the ground visibly move.
     let first = ((area.x + distance) / PEBBLE_SLOT).floor() as i64 - 1;
@@ -374,12 +393,12 @@ fn ground(area: view::Rect, distance: f32, c: &Colors) {
         let y = GROUND_Y + 5.0 + ((h >> 10) % 9) as f32;
         let len = 2.0 + ((h >> 16) % 5) as f32;
         if area.intersects_x(x, len) {
-            draw_rectangle(x, y, len, 1.5, c.fg);
+            g.rect(x, y, len, 1.5, c.fg);
         }
     }
 }
 
-fn rex(rex: &Rex, state: State, blink: bool, c: &Colors) {
+fn rex(g: &mut Gfx, rex: &Rex, state: State, blink: bool, c: &Colors) {
     let (w, h) = rex.size();
     // Both feet stay down mid-air, and while waiting or after a crash.
     let legs = match (rex.pose, state) {
@@ -394,7 +413,7 @@ fn rex(rex: &Rex, state: State, blink: bool, c: &Colors) {
     );
     // Shutting the eye just paints it in the body colour.
     let eye = if blink { c.accent } else { c.bg };
-    sprite(art, REX_X, top(rex.height, h), w, h, c.accent, eye);
+    sprite(g, art, REX_X, top(rex.height, h), w, h, c.accent, eye);
 }
 
 #[cfg(test)]
@@ -439,21 +458,23 @@ mod tests {
     }
 
     #[test]
-    fn score_cache_measures_only_changes_and_handles_reset_and_extra_digits() {
+    fn score_text_relays_out_only_changes_and_handles_reset_and_extra_digits() {
         let mut score = ScoreText::new("");
-        score.update(99_999, |s| s.len() as f32);
+        score.update(99_999);
         assert_eq!(score.text, "99999");
-        score.update(99_999, |_| panic!("unchanged score was measured again"));
-        score.update(100_000, |s| s.len() as f32);
+        // Five 5-pixel digits with a pixel between each.
+        assert_eq!(score.width(), 29.0 * SCORE_PX);
+        score.text.clear();
+        score.update(99_999);
+        assert_eq!(score.text, "", "unchanged score was laid out again");
+        score.update(100_000);
         assert_eq!(score.text, "100000");
-        assert_eq!(score.width, 6.0);
-        score.update(0, |s| s.len() as f32);
+        assert_eq!(score.width(), 35.0 * SCORE_PX);
+        score.update(0);
         assert_eq!(score.text, "00000");
-        assert_eq!(score.width, 5.0);
 
         let mut high = ScoreText::new("HI ");
-        high.update(42, |s| s.len() as f32);
+        high.update(42);
         assert_eq!(high.text, "HI 00042");
-        high.update(42, |_| panic!("unchanged high score was measured again"));
     }
 }

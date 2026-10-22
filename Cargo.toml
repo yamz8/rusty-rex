@@ -6,9 +6,11 @@ description = "The offline dinosaur runner, in Rust"
 license = "MIT"
 
 [dependencies]
-macroquad = "0.4.16"
-# Used directly rather than through macroquad's audio feature, which starts
-# the audio thread with every window, even the silent screensaver's.
+# The window, input and GL layer. The game draws only flat shapes, so it
+# renders on miniquad itself (src/gfx.rs) rather than through macroquad,
+# which sets up font atlases, UI and shaders at start that go unused.
+miniquad = { version = "0.4.11", features = ["log-impl"] }
+# Started only for a game with sound, never for the silent screensaver.
 quad-snd = "0.2.8"
 
 [profile.release]

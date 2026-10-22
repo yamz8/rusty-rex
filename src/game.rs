@@ -1,7 +1,7 @@
 //! The running game: the world scrolling past the rex, getting faster, with
 //! obstacles to clear.
 //!
-//! Like the rex, this never touches macroquad. Horizontal positions are in
+//! Like the rex, this never touches the window or GL. Horizontal positions are in
 //! playfield pixels and heights in pixels above the ground.
 
 use crate::obstacle::{self, Hitbox, Kind, Obstacle, Rng};

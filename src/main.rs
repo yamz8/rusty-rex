@@ -2,7 +2,9 @@ mod autopilot;
 mod banner;
 mod clock;
 mod draw;
+mod font;
 mod game;
+mod gfx;
 mod obstacle;
 mod palette;
 mod rex;
@@ -14,8 +16,8 @@ mod theme;
 mod view;
 
 use game::{Event, Game, State};
-use macroquad::miniquad::conf::{LinuxBackend, Platform};
-use macroquad::prelude::*;
+use miniquad::conf::{Conf, LinuxBackend, Platform};
+use miniquad::{EventHandler, KeyCode, KeyMods, MouseButton};
 use palette::Palette;
 use rex::Input;
 use session::Session;
@@ -137,16 +139,61 @@ fn linux_backend(has_x11: bool, has_wayland: bool) -> Option<LinuxBackend> {
     }
 }
 
-fn read_input() -> Input {
-    Input {
-        // A left click jumps too, as in Chrome.
-        jump: is_key_down(KeyCode::Space)
-            || is_key_down(KeyCode::Up)
-            || is_mouse_button_down(MouseButton::Left),
-        duck: is_key_down(KeyCode::Down),
-        jump_pressed: is_key_pressed(KeyCode::Space)
-            || is_key_pressed(KeyCode::Up)
-            || is_mouse_button_pressed(MouseButton::Left),
+/// Keys and buttons held, and those that went down since the last frame.
+#[derive(Default)]
+struct Keys {
+    down: Vec<KeyCode>,
+    pressed: Vec<KeyCode>,
+    click_down: bool,
+    clicked: bool,
+    /// Any key or button at all went down, which ends the screensaver.
+    any: bool,
+}
+
+impl Keys {
+    fn is_down(&self, key: KeyCode) -> bool {
+        self.down.contains(&key)
+    }
+
+    fn was_pressed(&self, key: KeyCode) -> bool {
+        self.pressed.contains(&key)
+    }
+
+    fn key_down(&mut self, key: KeyCode, repeat: bool) {
+        self.any = true;
+        // Held keys repeat, but only the first press counts as one.
+        if !repeat && !self.is_down(key) {
+            self.pressed.push(key);
+            self.down.push(key);
+        }
+    }
+
+    fn key_up(&mut self, key: KeyCode) {
+        self.down.retain(|&k| k != key);
+    }
+
+    /// Forgets what is held, for when the window can no longer see keys
+    /// being let go.
+    fn release_all(&mut self) {
+        self.down.clear();
+        self.click_down = false;
+    }
+
+    fn end_frame(&mut self) {
+        self.pressed.clear();
+        self.clicked = false;
+        self.any = false;
+    }
+
+    fn input(&self) -> Input {
+        Input {
+            // A left click jumps too, so a mouse is enough to play.
+            jump: self.is_down(KeyCode::Space) || self.is_down(KeyCode::Up) || self.click_down,
+            duck: self.is_down(KeyCode::Down),
+            jump_pressed: self.was_pressed(KeyCode::Space)
+                || self.was_pressed(KeyCode::Up)
+                || self.clicked,
+        }
     }
 }
 
@@ -225,15 +272,6 @@ impl Theme {
     }
 }
 
-/// Whether the viewer touched anything this frame, which ends the
-/// screensaver. Moving the mouse doesn't count, as with Omarchy's own.
-fn any_input() -> bool {
-    get_last_key_pressed().is_some()
-        || [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
-            .into_iter()
-            .any(is_mouse_button_pressed)
-}
-
 fn main() {
     let options = match parse_args(std::env::args().skip(1)) {
         Ok(Command::Run(options)) => options,
@@ -261,68 +299,108 @@ fn main() {
         std::process::exit(1);
     };
     let banner = options.banner.as_deref().and_then(load_banner);
-    macroquad::Window::from_config(
-        window_conf(backend, options.mode),
-        run(options.mode, banner),
-    );
+    let mode = options.mode;
+    miniquad::start(window_conf(backend, mode), move || {
+        Box::new(Stage::new(mode, banner))
+    });
 }
 
-async fn run(mode: Mode, banner: Option<sprites::Sprite>) {
-    let screensaver = mode == Mode::Screensaver;
-    // Any changing seed will do; it only decides the order of obstacles.
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(1, |d| d.as_nanos() as u64);
-    let mut game = Game::new(seed);
-    // The autopilot's scores aren't the player's.
-    let score_path = storage::default_high_score_path().filter(|_| !screensaver);
-    if let Some(path) = &score_path {
-        game.high_score = storage::load(path);
-    }
-    let mut score_saver = storage::ScoreSaver::new(game.high_score);
-    let sounds = (!screensaver).then(Sounds::load);
-    let mut theme = Theme::new();
-    // Muting lasts until the game closes.
-    let mut muted = false;
-    let mut session = Session::default();
-    let mut renderer = draw::Renderer::new(banner);
-    if screensaver {
-        show_mouse(false);
-    }
-    let mut previous_frame = get_time();
-    // Returning ends macroquad's main future, which closes the window. The
-    // high score is already saved by the frame that set it.
-    loop {
-        if is_key_pressed(KeyCode::Escape) || (screensaver && any_input()) {
-            break;
+struct Stage {
+    mode: Mode,
+    gfx: gfx::Gfx,
+    renderer: draw::Renderer,
+    game: Game,
+    session: Session,
+    keys: Keys,
+    /// None in the silent screensaver, which never starts the audio stack.
+    sounds: Option<Sounds>,
+    /// Muting lasts until the game closes.
+    muted: bool,
+    theme: Theme,
+    score_path: Option<PathBuf>,
+    score_saver: storage::ScoreSaver,
+    /// When the window opened, as a date; times below count from it.
+    started: f64,
+    previous_frame: f64,
+}
+
+impl Stage {
+    fn new(mode: Mode, banner: Option<sprites::Sprite>) -> Self {
+        let screensaver = mode == Mode::Screensaver;
+        // Any changing seed will do; it only decides the order of obstacles.
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1, |d| d.as_nanos() as u64);
+        let mut game = Game::new(seed);
+        // The autopilot's scores aren't the player's.
+        let score_path = storage::default_high_score_path().filter(|_| !screensaver);
+        if let Some(path) = &score_path {
+            game.high_score = storage::load(path);
         }
-        let now = get_time();
-        let elapsed = (now - previous_frame) as f32;
-        previous_frame = now;
         if screensaver {
-            session.autoplay(&mut game, elapsed);
-        } else {
-            session.advance(&mut game, elapsed, read_input(), is_key_pressed(KeyCode::P));
+            miniquad::window::show_mouse(false);
         }
-        if is_key_pressed(KeyCode::M) {
-            muted = !muted;
+        Self {
+            mode,
+            gfx: gfx::Gfx::new(),
+            renderer: draw::Renderer::new(banner),
+            score_saver: storage::ScoreSaver::new(game.high_score),
+            game,
+            session: Session::default(),
+            keys: Keys::default(),
+            sounds: (!screensaver).then(Sounds::load),
+            muted: false,
+            theme: Theme::new(),
+            score_path,
+            started: miniquad::date::now(),
+            previous_frame: 0.0,
+        }
+    }
+
+    fn frame(&mut self) {
+        let screensaver = self.mode == Mode::Screensaver;
+        // The high score is already saved by the frame that set it.
+        if self.keys.was_pressed(KeyCode::Escape) || (screensaver && self.keys.any) {
+            miniquad::window::order_quit();
+            return;
+        }
+        let now = miniquad::date::now() - self.started;
+        let elapsed = (now - self.previous_frame) as f32;
+        self.previous_frame = now;
+        let game = &mut self.game;
+        if screensaver {
+            self.session.autoplay(game, elapsed);
+        } else {
+            let pause = self.keys.was_pressed(KeyCode::P);
+            self.session
+                .advance(game, elapsed, self.keys.input(), pause);
+        }
+        if self.keys.was_pressed(KeyCode::M) {
+            self.muted = !self.muted;
         }
         for event in game.events.drain(..) {
-            if let Some(sounds) = sounds.as_ref().filter(|_| !muted) {
+            if let Some(sounds) = self.sounds.as_ref().filter(|_| !self.muted) {
                 sounds.play(event);
             }
         }
         // Losing a high score isn't worth crashing the game over.
-        if let Some(path) = &score_path
-            && let Err(e) = score_saver.save_if_needed(path, game.high_score, now)
+        if let Some(path) = &self.score_path
+            && let Err(e) = self.score_saver.save_if_needed(path, game.high_score, now)
         {
             eprintln!(
                 "rusty-rex: couldn't save high score to {}: {e}",
                 path.display()
             );
         }
-        theme.refresh(now);
-        renderer.frame(&game, theme.palette, muted);
+        self.theme.refresh(now);
+        self.renderer.frame(
+            &mut self.gfx,
+            miniquad::window::screen_size(),
+            game,
+            self.theme.palette,
+            self.muted,
+            now,
+        );
         // Nobody plays the screensaver, so half the display's frame rate is
         // plenty, and it halves the GPU time. Waiting, paused and game-over
         // screens barely move.
@@ -330,10 +408,45 @@ async fn run(mode: Mode, banner: Option<sprites::Sprite>) {
             // Miniquad 0.4.11 cannot wake a blocked X11 event loop from a
             // timer. A short idle sleep also keeps theme polling and save
             // retries working, without a platform-specific wakeup thread.
-            let remaining = (IDLE_FRAME_SECONDS - (get_time() - now)).max(0.0);
+            let spent = miniquad::date::now() - self.started - now;
+            let remaining = (IDLE_FRAME_SECONDS - spent).max(0.0);
             std::thread::sleep(std::time::Duration::from_secs_f64(remaining));
         }
-        next_frame().await;
+    }
+}
+
+impl EventHandler for Stage {
+    fn update(&mut self) {}
+
+    fn draw(&mut self) {
+        self.frame();
+        self.keys.end_frame();
+    }
+
+    fn key_down_event(&mut self, key: KeyCode, _: KeyMods, repeat: bool) {
+        self.keys.key_down(key, repeat);
+    }
+
+    fn key_up_event(&mut self, key: KeyCode, _: KeyMods) {
+        self.keys.key_up(key);
+    }
+
+    fn mouse_button_down_event(&mut self, button: MouseButton, _: f32, _: f32) {
+        self.keys.any = true;
+        if button == MouseButton::Left {
+            self.keys.click_down = true;
+            self.keys.clicked = true;
+        }
+    }
+
+    fn mouse_button_up_event(&mut self, button: MouseButton, _: f32, _: f32) {
+        if button == MouseButton::Left {
+            self.keys.click_down = false;
+        }
+    }
+
+    fn window_minimized_event(&mut self) {
+        self.keys.release_all();
     }
 }
 

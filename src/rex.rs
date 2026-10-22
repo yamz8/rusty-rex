@@ -1,6 +1,6 @@
 //! The rex's movement: running, jumping and ducking.
 //!
-//! Nothing here touches macroquad, so the physics can be tested without a
+//! Nothing here touches the window, so the physics can be tested without a
 //! window. Heights are in pixels above the ground and times in seconds.
 
 /// Pulls the rex back down while airborne.

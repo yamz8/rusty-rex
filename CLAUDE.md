@@ -1,6 +1,6 @@
 # rusty-rex
 
-The Chrome offline dinosaur game, rebuilt in Rust with macroquad as an
+The Chrome offline dinosaur game, rebuilt in Rust on miniquad as an
 Omarchy desktop game: one binary, installed as an Arch package so it shows
 up in the app launcher.
 
@@ -34,7 +34,7 @@ up in the app launcher.
 
 - `src/main.rs` window setup and the game loop, plus the glue that loads
   sounds, the high score and the theme.
-- Game logic, no macroquad, unit tested:
+- Game logic, no window or GL, unit tested:
   - `src/rex.rs` running, jumping and ducking physics.
   - `src/game.rs` states, scrolling, speed, spawning, collisions, score,
     night and sound events.
@@ -49,7 +49,11 @@ up in the app launcher.
   - `src/storage.rs` the high score file.
   - `src/sound.rs` synthesises the sound effects as WAVs.
   - `src/sprites.rs` pixel art as text grids.
+  - `src/font.rs` the 5x7 pixel font for the score and messages.
+  - `src/banner.rs` half-block art from `--banner` as pixels.
 - `src/draw.rs` all drawing; it only reads game state.
+- `src/gfx.rs` the renderer: batched flat rectangles and circles on
+  miniquad, one shader.
 - `pkgbuild/` PKGBUILD for `bin/install`, desktop entry, icon;
   `pkgbuild/aur/` the AUR package, built from GitHub release tags.
 - `.github/workflows/test.yml` runs `bin/test` on every push.
