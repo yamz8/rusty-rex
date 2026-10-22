@@ -118,4 +118,4 @@ left out on purpose; *extra* is Rusty Rex's own.
 | Arcade mode | `chrome://dino` scales the game to fill the page | The game always scales to its window (`view.rs`) | same |
 | Right-to-left pages | Mirrors the canvas | — | skipped |
 | Screensaver | — | `--screensaver` plays by itself (`autopilot.rs`) | extra |
-| Banner | — | `--banner FILE` draws half-block art in the sky (`banner.rs`) | extra |
+| Banner | — | `--banner FILE` draws block or braille art in the sky (`banner.rs`) | extra |

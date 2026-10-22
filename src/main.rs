@@ -40,7 +40,8 @@ Rusty Rex: the offline dinosaur runner, in Rust.
 Usage: rusty-rex [--screensaver] [--banner FILE]
 
   --screensaver  Play by itself, fullscreen and silent, until any key or click
-  --banner FILE  Draw the half-block art (▄ █ ▀) in FILE faintly in the sky
+  --banner FILE  Draw the block or braille art (█ ▀ ▄ ▌ ▐ ⣿) in FILE faintly
+                 in the sky
   -h, --help     Show this help
   -V, --version  Show the version
 
@@ -96,7 +97,10 @@ fn load_banner(path: &Path) -> Option<sprites::Sprite> {
         Ok(text) => {
             let art = banner::parse(&text);
             if art.is_none() {
-                eprintln!("rusty-rex: no ▄ █ ▀ blocks to draw in {}", path.display());
+                eprintln!(
+                    "rusty-rex: no block or braille art to draw in {}",
+                    path.display()
+                );
             }
             art
         }

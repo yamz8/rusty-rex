@@ -325,8 +325,8 @@ fn sky(g: &mut Gfx, shown: view::Rect, game: &Game, c: &Colors) {
     }
 }
 
-/// Centres the banner in the sky at the largest whole pixel size that fits,
-/// or a fraction of a pixel for art too big for whole ones.
+/// Centres the banner in the sky at the largest size in half-pixel steps
+/// that fits, or a fraction of a pixel for art too big for those.
 fn banner(g: &mut Gfx, art: &Sprite, shown: view::Rect, c: &Colors) {
     let (w, h) = banner_size(art.cols, art.rows);
     let col = Color::new(c.faint.r, c.faint.g, c.faint.b, BANNER_ALPHA);
@@ -337,7 +337,13 @@ fn banner(g: &mut Gfx, art: &Sprite, shown: view::Rect, c: &Colors) {
 /// The drawn width and height of art this many columns and rows.
 fn banner_size(cols: usize, rows: usize) -> (f32, f32) {
     let fit = (BANNER_MAX.0 / cols as f32).min(BANNER_MAX.1 / rows as f32);
-    let px = if fit >= 1.0 { fit.floor() } else { fit };
+    // Half-pixel steps: a half block is two of the art's pixels, so this
+    // keeps half-block art at the size whole steps used to give it.
+    let px = if fit >= 1.0 {
+        (fit * 2.0).floor() / 2.0
+    } else {
+        fit
+    };
     (px * cols as f32, px * rows as f32)
 }
 
@@ -522,10 +528,11 @@ mod tests {
     }
 
     #[test]
-    fn banners_use_whole_pixels_and_shrink_only_when_too_big() {
-        // Omarchy's logo trims to 80x19: height limits it to 5 px pixels.
-        assert_eq!(banner_size(80, 19), (400.0, 95.0));
-        // Tiny art still stops at the height limit, in whole pixels.
+    fn banners_use_half_pixel_steps_and_shrink_only_when_too_big() {
+        // Omarchy's logo trims to 160x38: height limits it to 2.5 px
+        // pixels, the same 400x95 as when each half block was one pixel.
+        assert_eq!(banner_size(160, 38), (400.0, 95.0));
+        // Tiny art still stops at the height limit.
         assert_eq!(banner_size(4, 2), (200.0, 100.0));
         // Art wider than the space gets pixels under one screen pixel.
         let (w, h) = banner_size(1000, 10);

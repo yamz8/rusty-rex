@@ -50,7 +50,7 @@ up in the app launcher.
   - `src/sound.rs` synthesises the sound effects as WAVs.
   - `src/sprites.rs` pixel art as text grids.
   - `src/font.rs` the 5x7 pixel font for the score and messages.
-  - `src/banner.rs` half-block art from `--banner` as pixels.
+  - `src/banner.rs` block and braille art from `--banner` as pixels.
 - `src/draw.rs` all drawing; it only reads game state.
 - `src/gfx.rs` the renderer: batched flat rectangles and circles on
   miniquad, one shader.

@@ -65,9 +65,11 @@ Omarchy shows it as the screensaver while you're offline.
 
 `rusty-rex --banner FILE` draws text art faintly in the sky above the
 playfield, in normal play and with `--screensaver`. The art is read as
-pixels from half blocks (`▄`, `█` and `▀`), two pixels to a character, so a
-logo drawn for a terminal shows up crisp at any size. Other characters are
-left blank.
+pixels, a 2×4 grid to a character: braille (`⣿`) lights its dots, and block
+characters (`█ ▀ ▄ ▌ ▐` and the quadrants `▘ ▝ ▖ ▗ ▚ ▞ ▙ ▛ ▜ ▟`) the parts
+they fill. So a logo drawn for a terminal, or made with
+`omarchy transcode ascii` or `omarchy ascii`, shows up crisp at any size.
+Other characters are left blank.
 
 ## Build from source
 
