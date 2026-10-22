@@ -13,5 +13,8 @@
 - [x] Rex blinks now and then on the start screen
 - [x] `--screensaver`: the rex plays by itself until any key or click
 - [x] `--banner FILE`: half-block text art drawn faintly in the sky
+- [x] Parity with Chrome's physics, obstacles, score, intro, restart and
+      night sky; see [parity.md](parity.md)
+- [x] Draw on miniquad directly, silent screensaver without an audio stack
 - [ ] `--rex FILE`: swap the runner for half-block art, keeping the rex's
       hitbox whatever is drawn
