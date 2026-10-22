@@ -3,7 +3,7 @@
 use macroquad::prelude::*;
 use std::fmt::Write;
 
-use crate::game::{Game, MILESTONE_FLASH, REX_X, State};
+use crate::game::{Game, MILESTONE_FLASH, MOON_PHASES, REX_X, State};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
 use crate::rex::{Pose, Rex};
@@ -15,6 +15,21 @@ pub const GROUND_Y: f32 = 260.0;
 /// The ground pebbles repeat on this spacing; each slot may hold one pebble.
 const PEBBLE_SLOT: f32 = 37.0;
 const STAR_COUNT: i64 = 12;
+/// Where the sky-coloured circle sits over the moon in each phase, from a
+/// thin crescent through full (None) and back to a crescent facing the
+/// other way.
+const MOON_SHADOWS: [Option<f32>; MOON_PHASES] = [
+    Some(8.0),
+    Some(16.0),
+    Some(24.0),
+    None,
+    Some(-24.0),
+    Some(-16.0),
+    Some(-8.0),
+];
+/// While waiting, the rex blinks once at a random moment in each slot.
+const BLINK_SLOT: f64 = 4.0;
+const BLINK_TIME: f64 = 0.15;
 /// Clouds drift past at this fraction of the ground's speed, so they look
 /// far away; Chrome uses the same ratio.
 const CLOUD_PARALLAX: f32 = 0.2;
@@ -137,7 +152,7 @@ impl Renderer {
         set_camera(&camera);
 
         if game.night > 0.0 {
-            sky(area, shown, game.night, &c);
+            sky(area, shown, game.night, game.moon_phase(), &c);
         }
         clouds(shown, game.distance, &c);
         ground(shown, game.distance, &c);
@@ -146,7 +161,8 @@ impl Renderer {
                 obstacle(o, &c);
             }
         }
-        rex(&game.rex, game.state, &c);
+        let blink = game.state == State::Waiting && blinking(get_time());
+        rex(&game.rex, game.state, blink, &c);
         self.score(game, &c);
 
         if muted {
@@ -198,7 +214,7 @@ impl Renderer {
 }
 
 /// The moon and stars fade in with the night, as in Chrome.
-fn sky(area: view::Rect, shown: view::Rect, night: f32, c: &Colors) {
+fn sky(area: view::Rect, shown: view::Rect, night: f32, phase: usize, c: &Colors) {
     let fade = |col: Color| Color::new(col.r, col.g, col.b, night);
     for i in 0..STAR_COUNT {
         let h = hash(i + 1000);
@@ -209,12 +225,24 @@ fn sky(area: view::Rect, shown: view::Rect, night: f32, c: &Colors) {
         }
     }
     let (moon_x, moon_y, r) = (area.x + area.w * 0.75, 70.0, 16.0);
-    if !shown.intersects_x(moon_x - r, r * 2.0 + 8.0) {
+    if !shown.intersects_x(moon_x - r, r * 2.0) {
         return;
     }
     draw_circle(moon_x, moon_y, r, fade(c.fg));
-    // Covering part of the full moon with the sky colour leaves a crescent.
-    draw_circle(moon_x + 8.0, moon_y - 3.0, r, c.bg);
+    // Covering part of the full moon with the sky colour leaves the phase.
+    if let Some(dx) = MOON_SHADOWS[phase] {
+        draw_circle(moon_x + dx, moon_y - 3.0, r, c.bg);
+    }
+}
+
+/// Whether the waiting rex has its eyes shut at `t` seconds. Chrome's rex
+/// blinks at random moments; hashing the slot keeps that irregular without
+/// any state.
+fn blinking(t: f64) -> bool {
+    let slot = (t / BLINK_SLOT).floor();
+    let at = f64::from(hash(slot as i64 + 9000) % 3000) / 1000.0;
+    let into = t - slot * BLINK_SLOT;
+    (at..at + BLINK_TIME).contains(&into)
 }
 
 fn clouds(area: view::Rect, distance: f32, c: &Colors) {
@@ -324,7 +352,7 @@ fn ground(area: view::Rect, distance: f32, c: &Colors) {
     }
 }
 
-fn rex(rex: &Rex, state: State, c: &Colors) {
+fn rex(rex: &Rex, state: State, blink: bool, c: &Colors) {
     let (w, h) = rex.size();
     // Both feet stay down mid-air, and while waiting or after a crash.
     let legs = match (rex.pose, state) {
@@ -337,12 +365,39 @@ fn rex(rex: &Rex, state: State, c: &Colors) {
         matches!(state, State::Over(_)),
         legs,
     );
-    sprite(art, REX_X, top(rex.height, h), w, h, c.accent, c.bg);
+    // Shutting the eye just paints it in the body colour.
+    let eye = if blink { c.accent } else { c.bg };
+    sprite(art, REX_X, top(rex.height, h), w, h, c.accent, eye);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_waiting_rex_blinks_briefly_once_per_slot() {
+        let step = 0.001;
+        let mut blinks = 0;
+        let mut shut_for = 0.0;
+        let mut was_shut = false;
+        for i in 0..(10.0 * BLINK_SLOT / step) as i64 {
+            let shut = blinking(i as f64 * step);
+            if shut {
+                shut_for += step;
+            }
+            if shut && !was_shut {
+                blinks += 1;
+            }
+            was_shut = shut;
+        }
+        assert_eq!(blinks, 10);
+        assert!((shut_for - 10.0 * BLINK_TIME).abs() < 0.02, "{shut_for}");
+    }
+
+    #[test]
+    fn the_moon_is_full_once_in_its_cycle() {
+        assert_eq!(MOON_SHADOWS.iter().filter(|s| s.is_none()).count(), 1);
+    }
 
     #[test]
     fn score_cache_measures_only_changes_and_handles_reset_and_extra_digits() {

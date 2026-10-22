@@ -44,6 +44,8 @@ pub const NIGHT_EVERY: u32 = 700;
 const NIGHT_LENGTH: f32 = 12.0;
 /// How long the change between day and night takes.
 const NIGHT_FADE_TIME: f32 = 1.0;
+/// Chrome's moon goes through this many phases, one each night.
+pub const MOON_PHASES: usize = 7;
 /// The rex's hitbox is trimmed more than the obstacles', since its sprite
 /// leaves empty corners above the tail and under the jaw.
 const REX_HITBOX_INSET: f32 = 6.0;
@@ -84,6 +86,9 @@ pub struct Game {
     pub night: f32,
     /// Seconds of night left; day returns when it runs out.
     night_left: f32,
+    /// Nights so far, across runs, so the moon keeps moving through its
+    /// phases instead of starting over with every restart.
+    nights: u32,
     /// Events since the caller last drained them.
     pub events: Vec<Event>,
     rng: Rng,
@@ -110,6 +115,7 @@ impl Game {
             milestone_flash: 0.0,
             night: 0.0,
             night_left: 0.0,
+            nights: 0,
             events: Vec::new(),
             rng: Rng::new(seed),
             until_spawn: FIRST_SPAWN_DISTANCE,
@@ -158,6 +164,11 @@ impl Game {
         (self.distance * SCORE_PER_PIXEL) as u32
     }
 
+    /// Tonight's moon phase, counting from the first night's.
+    pub fn moon_phase(&self) -> usize {
+        self.nights.saturating_sub(1) as usize % MOON_PHASES
+    }
+
     pub fn rex_hitbox(&self) -> Hitbox {
         let (w, h) = self.rex.size();
         Hitbox::new(REX_X, self.rex.height, w, h).inset(REX_HITBOX_INSET)
@@ -181,6 +192,7 @@ impl Game {
         self.night_left = (self.night_left - dt).max(0.0);
         if self.score() / NIGHT_EVERY > before / NIGHT_EVERY {
             self.night_left = NIGHT_LENGTH;
+            self.nights += 1;
         }
         let target = if self.night_left > 0.0 { 1.0 } else { 0.0 };
         let fade_step = dt / NIGHT_FADE_TIME;
@@ -224,6 +236,7 @@ impl Game {
             state: State::Running,
             rng,
             high_score: self.high_score,
+            nights: self.nights,
             ..Self::new(0)
         };
         self.jump_was_down = true;
@@ -473,6 +486,27 @@ mod tests {
         game.distance = (2 * NIGHT_EVERY) as f32 / 0.025 - 1.0;
         run(&mut game, 1.5, NONE);
         assert_eq!(game.night, 1.0);
+    }
+
+    #[test]
+    fn the_moon_moves_on_a_phase_each_night_and_across_restarts() {
+        let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
+        let mut phases = Vec::new();
+        for night in 1..=MOON_PHASES as u32 + 1 {
+            game.distance = (night * NIGHT_EVERY) as f32 / 0.025 - 1.0;
+            run(&mut game, 0.1, NONE);
+            phases.push(game.moon_phase());
+        }
+        let expected: Vec<usize> = (0..MOON_PHASES).chain([0]).collect();
+        assert_eq!(phases, expected);
+
+        // A crash and restart doesn't send the moon back to its first phase.
+        let phase = game.moon_phase();
+        game.obstacles = vec![Obstacle::new(Kind::LargeCactus(1), 200.0, 0.0)];
+        play(&mut game, |_| NONE);
+        run(&mut game, RESTART_DELAY, NONE);
+        game.update(DT, JUMP);
+        assert_eq!(game.moon_phase(), phase);
     }
 
     #[test]
