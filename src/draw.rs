@@ -36,6 +36,12 @@ const CLOUD_PARALLAX: f32 = 0.2;
 /// Each slot this wide may hold one cloud.
 const CLOUD_SLOT: f32 = 260.0;
 const CLOUD_SIZE: (f32, f32) = (46.0, 14.0);
+/// The banner's top edge, and the most of the sky it may cover, so it stays
+/// clear of the score row's right end and the start prompt below.
+const BANNER_TOP: f32 = 16.0;
+const BANNER_MAX: (f32, f32) = (0.6 * view::PLAYFIELD_WIDTH, 100.0);
+/// The banner is backdrop, so it is drawn well under the faint colour.
+const BANNER_ALPHA: f32 = 0.35;
 
 /// The frame's colours, converted once for macroquad.
 struct Colors {
@@ -106,6 +112,7 @@ impl Label {
 
 pub struct Renderer {
     dpi_scale: f32,
+    banner: Option<Sprite>,
     current_score: ScoreText,
     high_score: ScoreText,
     start: Label,
@@ -116,9 +123,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new() -> Self {
+    pub fn new(banner: Option<Sprite>) -> Self {
         Self {
             dpi_scale: screen_dpi_scale(),
+            banner,
             current_score: ScoreText::new(""),
             high_score: ScoreText::new("HI "),
             start: Label::new("Press Space or click to start", 24.0),
@@ -132,7 +140,7 @@ impl Renderer {
     pub fn frame(&mut self, game: &Game, day: Palette, muted: bool) {
         // Font metrics can change when the window moves between monitors.
         if self.dpi_scale != screen_dpi_scale() {
-            *self = Self::new();
+            *self = Self::new(self.banner.take());
         }
         let p = day.at_night(game.night);
         let c = Colors {
@@ -153,6 +161,9 @@ impl Renderer {
 
         if game.night > 0.0 {
             sky(area, shown, game.night, game.moon_phase(), &c);
+        }
+        if let Some(art) = &self.banner {
+            banner(art, shown, &c);
         }
         clouds(shown, game.distance, &c);
         ground(shown, game.distance, &c);
@@ -233,6 +244,22 @@ fn sky(area: view::Rect, shown: view::Rect, night: f32, phase: usize, c: &Colors
     if let Some(dx) = MOON_SHADOWS[phase] {
         draw_circle(moon_x + dx, moon_y - 3.0, r, c.bg);
     }
+}
+
+/// Centres the banner in the sky at the largest whole pixel size that fits,
+/// or a fraction of a pixel for art too big for whole ones.
+fn banner(art: &Sprite, shown: view::Rect, c: &Colors) {
+    let (w, h) = banner_size(art.cols, art.rows);
+    let col = Color::new(c.faint.r, c.faint.g, c.faint.b, BANNER_ALPHA);
+    let x = shown.x + (shown.w - w) / 2.0;
+    sprite(art, x, BANNER_TOP, w, h, col, col);
+}
+
+/// The drawn width and height of art this many columns and rows.
+fn banner_size(cols: usize, rows: usize) -> (f32, f32) {
+    let fit = (BANNER_MAX.0 / cols as f32).min(BANNER_MAX.1 / rows as f32);
+    let px = if fit >= 1.0 { fit.floor() } else { fit };
+    (px * cols as f32, px * rows as f32)
 }
 
 /// Whether the waiting rex has its eyes shut at `t` seconds. Chrome's rex
@@ -392,6 +419,18 @@ mod tests {
         }
         assert_eq!(blinks, 10);
         assert!((shut_for - 10.0 * BLINK_TIME).abs() < 0.02, "{shut_for}");
+    }
+
+    #[test]
+    fn banners_use_whole_pixels_and_shrink_only_when_too_big() {
+        // Omarchy's logo trims to 80x19: height limits it to 5 px pixels.
+        assert_eq!(banner_size(80, 19), (400.0, 95.0));
+        // Tiny art still stops at the height limit, in whole pixels.
+        assert_eq!(banner_size(4, 2), (200.0, 100.0));
+        // Art wider than the space gets pixels under one screen pixel.
+        let (w, h) = banner_size(1000, 10);
+        assert_eq!(w, BANNER_MAX.0);
+        assert!(h < 10.0);
     }
 
     #[test]

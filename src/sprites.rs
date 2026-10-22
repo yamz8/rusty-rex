@@ -311,7 +311,7 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    fn new(rows: &[&str]) -> Self {
+    pub fn new(rows: &[&str]) -> Self {
         Self {
             cols: rows[0].len(),
             rows: rows.len(),

@@ -1,4 +1,5 @@
 mod autopilot;
+mod banner;
 mod clock;
 mod draw;
 mod game;
@@ -19,7 +20,7 @@ use macroquad::prelude::*;
 use palette::Palette;
 use rex::Input;
 use session::Session;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use view::{PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
 
 /// How often to check whether the Omarchy theme changed.
@@ -35,9 +36,10 @@ const SCREENSAVER_CLASS: &str = "org.omarchy.screensaver";
 const HELP: &str = "\
 Rusty Rex: the offline dinosaur runner, in Rust.
 
-Usage: rusty-rex [--screensaver]
+Usage: rusty-rex [--screensaver] [--banner FILE]
 
   --screensaver  Play by itself, fullscreen and silent, until any key or click
+  --banner FILE  Draw the half-block art (▄ █ ▀) in FILE faintly in the sky
   -h, --help     Show this help
   -V, --version  Show the version
 
@@ -53,23 +55,55 @@ enum Mode {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+struct Options {
+    mode: Mode,
+    banner: Option<PathBuf>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 enum Command {
-    Run(Mode),
+    Run(Options),
     Help,
     Version,
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
-    let mut mode = Mode::Play;
-    for arg in args {
+    let mut options = Options {
+        mode: Mode::Play,
+        banner: None,
+    };
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--screensaver" => mode = Mode::Screensaver,
+            "--screensaver" => options.mode = Mode::Screensaver,
+            "--banner" => {
+                let file = args.next().ok_or("--banner needs a file")?;
+                options.banner = Some(file.into());
+            }
             "-h" | "--help" => return Ok(Command::Help),
             "-V" | "--version" => return Ok(Command::Version),
             _ => return Err(format!("unknown argument {arg}; see rusty-rex --help")),
         }
     }
-    Ok(Command::Run(mode))
+    Ok(Command::Run(options))
+}
+
+/// Reads the banner art. A missing or blank banner is only worth a warning:
+/// the screensaver must still start.
+fn load_banner(path: &Path) -> Option<sprites::Sprite> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => {
+            let art = banner::parse(&text);
+            if art.is_none() {
+                eprintln!("rusty-rex: no ▄ █ ▀ blocks to draw in {}", path.display());
+            }
+            art
+        }
+        Err(e) => {
+            eprintln!("rusty-rex: couldn't read banner {}: {e}", path.display());
+            None
+        }
+    }
 }
 
 fn window_conf(linux_backend: LinuxBackend, mode: Mode) -> Conf {
@@ -200,8 +234,8 @@ fn any_input() -> bool {
 }
 
 fn main() {
-    let mode = match parse_args(std::env::args().skip(1)) {
-        Ok(Command::Run(mode)) => mode,
+    let options = match parse_args(std::env::args().skip(1)) {
+        Ok(Command::Run(options)) => options,
         Ok(Command::Help) => {
             println!("{HELP}");
             return;
@@ -225,10 +259,14 @@ fn main() {
         eprintln!("rusty-rex: no display found; run it from a graphical session");
         std::process::exit(1);
     };
-    macroquad::Window::from_config(window_conf(backend, mode), run(mode));
+    let banner = options.banner.as_deref().and_then(load_banner);
+    macroquad::Window::from_config(
+        window_conf(backend, options.mode),
+        run(options.mode, banner),
+    );
 }
 
-async fn run(mode: Mode) {
+async fn run(mode: Mode, banner: Option<sprites::Sprite>) {
     let screensaver = mode == Mode::Screensaver;
     // Any changing seed will do; it only decides the order of obstacles.
     let seed = std::time::SystemTime::now()
@@ -253,7 +291,7 @@ async fn run(mode: Mode) {
     // Muting lasts until the game closes.
     let mut muted = false;
     let mut session = Session::default();
-    let mut renderer = draw::Renderer::new();
+    let mut renderer = draw::Renderer::new(banner);
     if screensaver {
         show_mouse(false);
     }
@@ -322,11 +360,19 @@ mod tests {
 
     #[test]
     fn parses_the_command_line() {
-        assert_eq!(args(&[]), Ok(Command::Run(Mode::Play)));
+        let run = |mode, banner: Option<&str>| {
+            Ok(Command::Run(Options {
+                mode,
+                banner: banner.map(PathBuf::from),
+            }))
+        };
+        assert_eq!(args(&[]), run(Mode::Play, None));
+        assert_eq!(args(&["--screensaver"]), run(Mode::Screensaver, None));
         assert_eq!(
-            args(&["--screensaver"]),
-            Ok(Command::Run(Mode::Screensaver))
+            args(&["--banner", "logo.txt", "--screensaver"]),
+            run(Mode::Screensaver, Some("logo.txt"))
         );
+        assert!(args(&["--banner"]).is_err());
         assert_eq!(args(&["--screensaver", "-h"]), Ok(Command::Help));
         assert_eq!(args(&["--version"]), Ok(Command::Version));
         assert!(args(&["--screen"]).is_err());

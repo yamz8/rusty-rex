@@ -12,3 +12,6 @@
 - [x] Moon phases that change each night, as in Chrome
 - [x] Rex blinks now and then on the start screen
 - [x] `--screensaver`: the rex plays by itself until any key or click
+- [x] `--banner FILE`: half-block text art drawn faintly in the sky
+- [ ] `--rex FILE`: swap the runner for half-block art, keeping the rex's
+      hitbox whatever is drawn

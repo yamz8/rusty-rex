@@ -57,6 +57,14 @@ it times every jump and duck, silently, without touching your high score.
 Any key or click quits. It draws at 30 FPS to go easy on the battery.
 Omarchy shows it as the screensaver while you're offline.
 
+## Banner
+
+`rusty-rex --banner FILE` draws text art faintly in the sky above the
+playfield, in normal play and with `--screensaver`. The art is read as
+pixels from half blocks (`▄`, `█` and `▀`), two pixels to a character, so a
+logo drawn for a terminal shows up crisp at any size. Other characters are
+left blank.
+
 ## Build from source
 
 Rust comes from `omarchy install dev-env rust`.
