@@ -13,6 +13,7 @@ mod view;
 
 use game::{Event, Game, State};
 use macroquad::audio::{Sound, load_sound_from_bytes, play_sound_once};
+use macroquad::miniquad::conf::{LinuxBackend, Platform};
 use macroquad::prelude::*;
 use palette::Palette;
 use rex::Input;
@@ -30,7 +31,25 @@ fn window_conf() -> Conf {
         window_title: "Rusty Rex".to_owned(),
         window_width: PLAYFIELD_WIDTH as i32,
         window_height: PLAYFIELD_HEIGHT as i32,
+        platform: Platform {
+            linux_backend: linux_backend(
+                std::env::var_os("DISPLAY").is_some(),
+                std::env::var_os("WAYLAND_DISPLAY").is_some(),
+            ),
+            ..Default::default()
+        },
         ..Default::default()
+    }
+}
+
+/// Picks how to open the window on Linux. X11 (XWayland) is miniquad's
+/// stable backend, so it stays the choice whenever there is an X display;
+/// without one it panics, so a Wayland-only session uses Wayland instead.
+fn linux_backend(has_x11: bool, has_wayland: bool) -> LinuxBackend {
+    if !has_x11 && has_wayland {
+        LinuxBackend::WaylandOnly
+    } else {
+        LinuxBackend::X11Only
     }
 }
 
@@ -169,5 +188,19 @@ async fn main() {
             std::thread::sleep(std::time::Duration::from_secs_f64(remaining));
         }
         next_frame().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefers_x11_and_falls_back_to_wayland() {
+        assert_eq!(linux_backend(true, true), LinuxBackend::X11Only);
+        assert_eq!(linux_backend(true, false), LinuxBackend::X11Only);
+        assert_eq!(linux_backend(false, true), LinuxBackend::WaylandOnly);
+        // With neither, X11 still fails loudly rather than guessing.
+        assert_eq!(linux_backend(false, false), LinuxBackend::X11Only);
     }
 }
