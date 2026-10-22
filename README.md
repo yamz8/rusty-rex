@@ -54,8 +54,8 @@ Or download the x86_64 build, with its desktop entry and icon, from the
 
 `rusty-rex --screensaver` opens fullscreen and lets the rex play by itself:
 it times every jump and duck, silently, without touching your high score.
-Any key or click quits. Omarchy shows it as the screensaver while you're
-offline.
+Any key or click quits. It draws at 30 FPS to go easy on the battery.
+Omarchy shows it as the screensaver while you're offline.
 
 ## Build from source
 

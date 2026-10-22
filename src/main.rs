@@ -24,7 +24,8 @@ use view::{PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
 
 /// How often to check whether the Omarchy theme changed.
 const THEME_CHECK_SECONDS: f64 = 1.0;
-/// Bound idle rendering without blocking input or theme checks for long.
+/// Bound idle and screensaver rendering without blocking input or theme
+/// checks for long.
 const IDLE_FRAME_SECONDS: f64 = 1.0 / 30.0;
 
 /// Omarchy's screensaver windows share this class, which its window rules
@@ -265,7 +266,10 @@ async fn run(mode: Mode) {
         }
         theme.refresh(now);
         renderer.frame(&game, theme.palette, muted);
-        if game.state != State::Running {
+        // Nobody plays the screensaver, so half the display's frame rate is
+        // plenty, and it halves the GPU time. Waiting, paused and game-over
+        // screens barely move.
+        if screensaver || game.state != State::Running {
             // Miniquad 0.4.11 cannot wake a blocked X11 event loop from a
             // timer. A short idle sleep also keeps theme polling and save
             // retries working, without a platform-specific wakeup thread.
