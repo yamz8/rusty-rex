@@ -46,9 +46,13 @@ Or download the x86_64 build, with its desktop entry and icon, from the
 | ------------------ | ----------------------------------------------- |
 | <kbd>Space</kbd> / <kbd>↑</kbd> / click | Jump: hold for a higher jump, tap for a hop |
 | <kbd>↓</kbd>       | Duck under pterodactyls, or drop faster mid-jump |
-| <kbd>P</kbd>       | Pause                                           |
+| <kbd>Enter</kbd>   | Play again straight after a crash               |
+| <kbd>P</kbd>       | Pause; the game also pauses when it loses focus |
 | <kbd>M</kbd>       | Mute                                            |
 | <kbd>Esc</kbd>     | Quit                                            |
+
+To reset the high score, click it twice on the game-over screen, as in
+Chrome.
 
 ## Screensaver
 

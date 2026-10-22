@@ -37,12 +37,12 @@ impl Session {
         pause: bool,
         mut input: impl FnMut(&mut Self, &Game, f32) -> Input,
     ) {
-        let was_running = game.state == State::Running;
+        let was_live = game.is_live();
         if pause {
             game.toggle_pause();
         }
 
-        if game.state != State::Running || !was_running {
+        if !game.is_live() || !was_live {
             self.clock = Clock::default();
             // Idle time advances the restart delay, never the world. Starting
             // or resuming after an idle wakeup plays one tick rather than
@@ -79,6 +79,7 @@ mod tests {
         jump_pressed: true,
         jump: false,
         duck: false,
+        restart: false,
     };
 
     fn running() -> Game {
@@ -116,12 +117,13 @@ mod tests {
         let mut session = Session::default();
         let mut game = Game::new(1);
         session.advance(&mut game, 60.0, TAP, false);
-        assert_eq!(game.state, State::Running);
-        assert!(game.distance > 0.0 && game.distance < 4.0);
+        // The first jump plays one tick, not the whole idle time.
+        assert_eq!(game.state, State::Intro(0.0));
         assert_eq!(game.rex.pose, Pose::Jumping);
-        let distance = game.distance;
+        let height = game.rex.height;
+        assert!(height > 0.0 && height < 10.0, "{height}");
         session.advance(&mut game, TICK, Input::default(), false);
-        assert!(game.distance > distance && game.distance < 2.0 * distance + 1.0);
+        assert!(game.rex.height > height && game.rex.height < 2.0 * height + 1.0);
     }
 
     #[test]

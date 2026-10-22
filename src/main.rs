@@ -145,7 +145,8 @@ struct Keys {
     down: Vec<KeyCode>,
     pressed: Vec<KeyCode>,
     click_down: bool,
-    clicked: bool,
+    /// Where the left button last went down this frame, in window pixels.
+    clicked: Option<(f32, f32)>,
     /// Any key or button at all went down, which ends the screensaver.
     any: bool,
 }
@@ -181,7 +182,7 @@ impl Keys {
 
     fn end_frame(&mut self) {
         self.pressed.clear();
-        self.clicked = false;
+        self.clicked = None;
         self.any = false;
     }
 
@@ -192,7 +193,10 @@ impl Keys {
             duck: self.is_down(KeyCode::Down),
             jump_pressed: self.was_pressed(KeyCode::Space)
                 || self.was_pressed(KeyCode::Up)
-                || self.clicked,
+                || self.clicked.is_some(),
+            restart: self.was_pressed(KeyCode::Enter)
+                || self.was_pressed(KeyCode::KpEnter)
+                || self.clicked.is_some(),
         }
     }
 }
@@ -220,7 +224,8 @@ impl Sounds {
 
     fn play(&self, event: Event) {
         let sound = match event {
-            Event::Jump => &self.jump,
+            // Chrome's button sound plays for jumps and restarts alike.
+            Event::Jump | Event::Restart => &self.jump,
             Event::Milestone => &self.milestone,
             Event::Crash => &self.crash,
         };
@@ -319,6 +324,12 @@ struct Stage {
     theme: Theme,
     score_path: Option<PathBuf>,
     score_saver: storage::ScoreSaver,
+    /// The window lost or regained focus since the last frame.
+    focus_lost: bool,
+    focus_back: bool,
+    /// The run was paused because the window lost focus, so it resumes
+    /// when focus comes back.
+    paused_for_focus: bool,
     /// When the window opened, as a date; times below count from it.
     started: f64,
     previous_frame: f64,
@@ -352,6 +363,9 @@ impl Stage {
             muted: false,
             theme: Theme::new(),
             score_path,
+            focus_lost: false,
+            focus_back: false,
+            paused_for_focus: false,
             started: miniquad::date::now(),
             previous_frame: 0.0,
         }
@@ -371,9 +385,36 @@ impl Stage {
         if screensaver {
             self.session.autoplay(game, elapsed);
         } else {
-            let pause = self.keys.was_pressed(KeyCode::P);
+            // A click on the high score at game over is for resetting it,
+            // not for playing again.
+            if let Some(click) = self.keys.clicked
+                && matches!(game.state, State::Over(_))
+                && self.renderer.on_high_score(view::playfield_point(
+                    miniquad::window::screen_size(),
+                    click,
+                ))
+            {
+                game.click_high_score();
+                self.keys.clicked = None;
+            }
+            // Like Chrome, stop when the window loses focus and carry on
+            // when it comes back.
+            let mut pause = self.keys.was_pressed(KeyCode::P);
+            if std::mem::take(&mut self.focus_lost) && game.state == State::Running {
+                pause = !pause;
+                self.paused_for_focus = true;
+            }
+            if std::mem::take(&mut self.focus_back)
+                && std::mem::take(&mut self.paused_for_focus)
+                && game.state == State::Paused
+            {
+                pause = !pause;
+            }
             self.session
                 .advance(game, elapsed, self.keys.input(), pause);
+            if game.state != State::Paused {
+                self.paused_for_focus = false;
+            }
         }
         if self.keys.was_pressed(KeyCode::M) {
             self.muted = !self.muted;
@@ -431,11 +472,11 @@ impl EventHandler for Stage {
         self.keys.key_up(key);
     }
 
-    fn mouse_button_down_event(&mut self, button: MouseButton, _: f32, _: f32) {
+    fn mouse_button_down_event(&mut self, button: MouseButton, x: f32, y: f32) {
         self.keys.any = true;
         if button == MouseButton::Left {
             self.keys.click_down = true;
-            self.keys.clicked = true;
+            self.keys.clicked = Some((x, y));
         }
     }
 
@@ -445,8 +486,14 @@ impl EventHandler for Stage {
         }
     }
 
+    /// On X11 miniquad reports losing focus as minimising.
     fn window_minimized_event(&mut self) {
         self.keys.release_all();
+        self.focus_lost = true;
+    }
+
+    fn window_restored_event(&mut self) {
+        self.focus_back = true;
     }
 }
 

@@ -24,8 +24,17 @@ const CLEAR_TIME: f32 = 3.0;
 /// Obstacles this far left of the playfield are gone for good.
 pub const DESPAWN_X: f32 = -300.0;
 /// After a crash, jump is ignored this long so a panicked press doesn't skip
-/// straight past the game-over screen.
-pub const RESTART_DELAY: f32 = 0.5;
+/// straight past the game-over screen; Enter or a click restarts at once.
+pub const RESTART_DELAY: f32 = 1.2;
+/// After the first jump lands, Chrome widens the game out from the rex over
+/// this long before the world starts moving.
+pub const INTRO_TIME: f32 = 0.4;
+/// Meanwhile the rex walks in from this far left of where it runs, at
+/// Chrome's 50 px per 1.5 s.
+pub const INTRO_WALK: f32 = 50.0 / 1.5 * INTRO_TIME;
+/// Clicking the high score at game over makes it blink this long, seven
+/// times; a second click meanwhile resets it.
+pub const HIGH_SCORE_FLASH: f32 = 7.0 * FLASH_PERIOD;
 /// Chrome's score is the distance in whole pixels times this, rounded.
 const SCORE_PER_PIXEL: f32 = 0.025;
 /// Every this many points the score blinks, as in Chrome.
@@ -59,12 +68,17 @@ pub enum Event {
     Jump,
     Milestone,
     Crash,
+    /// A new run after a crash; Chrome plays its button sound.
+    Restart,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum State {
     /// Before the first jump, as in Chrome.
     Waiting,
+    /// The first jump and the opening of the game, before the world moves.
+    /// Holds the seconds since the rex landed.
+    Intro(f32),
     Running,
     /// Frozen mid-run until the player resumes.
     Paused,
@@ -84,6 +98,8 @@ pub struct Game {
     pub obstacles: Vec<Obstacle>,
     /// Best score so far, including earlier sessions once loaded from disk.
     pub high_score: u32,
+    /// Seconds of high score blinking left after a click on it.
+    pub high_score_flash: f32,
     /// Seconds of score blinking left after the last milestone.
     pub milestone_flash: f32,
     /// The milestone the score shows while it blinks.
@@ -118,6 +134,7 @@ impl Game {
             distance: 0.0,
             obstacles: Vec::new(),
             high_score: 0,
+            high_score_flash: 0.0,
             milestone_flash: 0.0,
             milestone_score: 0,
             night: 0.0,
@@ -141,20 +158,83 @@ impl Game {
         match self.state {
             State::Waiting => {
                 if input.jump_pressed {
-                    self.state = State::Running;
-                    self.run(dt, input);
+                    self.state = State::Intro(0.0);
+                    self.intro(dt, input);
                 }
             }
+            State::Intro(_) => self.intro(dt, input),
             State::Running => self.run(dt, input),
             State::Paused => {}
             State::Over(since) => {
                 let since = since + dt;
                 self.state = State::Over(since);
-                if input.jump_pressed && since >= RESTART_DELAY {
+                self.high_score_flash = (self.high_score_flash - dt).max(0.0);
+                if input.restart || (input.jump_pressed && since >= RESTART_DELAY) {
                     self.restart();
                 }
             }
         }
+    }
+
+    /// Whether the game is moving on its own, so time should pass in fixed
+    /// ticks.
+    pub fn is_live(&self) -> bool {
+        matches!(self.state, State::Running | State::Intro(_))
+    }
+
+    /// The first jump happens in place; once the rex lands, the game opens
+    /// out and the run begins.
+    fn intro(&mut self, dt: f32, input: Input) {
+        let was_jumping = self.rex.pose == Pose::Jumping;
+        self.rex.update(dt, input, self.speed);
+        if !was_jumping && self.rex.pose == Pose::Jumping {
+            self.events.push(Event::Jump);
+        }
+        if let State::Intro(landed) = self.state
+            && self.rex.on_ground()
+        {
+            let landed = landed + dt;
+            self.state = if landed >= INTRO_TIME {
+                State::Running
+            } else {
+                State::Intro(landed)
+            };
+        }
+    }
+
+    /// How much of the game shows, from 0 (only the rex) to 1, easing out
+    /// as Chrome's opening animation does.
+    pub fn reveal(&self) -> f32 {
+        match self.state {
+            State::Waiting => 0.0,
+            State::Intro(t) => 1.0 - (1.0 - t / INTRO_TIME).powi(2),
+            _ => 1.0,
+        }
+    }
+
+    /// Where the rex is drawn: it walks in during the intro.
+    pub fn rex_x(&self) -> f32 {
+        REX_X - INTRO_WALK * (1.0 - self.reveal())
+    }
+
+    /// A click on the high score at game over: the first makes it blink, a
+    /// second while it blinks resets it to zero, as in Chrome.
+    pub fn click_high_score(&mut self) {
+        if !matches!(self.state, State::Over(_)) || self.high_score == 0 {
+            return;
+        }
+        if self.high_score_flash > 0.0 {
+            self.high_score = 0;
+            self.high_score_flash = 0.0;
+        } else {
+            self.high_score_flash = HIGH_SCORE_FLASH;
+        }
+    }
+
+    /// Whether the blinking high score is in its off half.
+    pub fn high_score_hidden(&self) -> bool {
+        self.high_score_flash > 0.0
+            && (HIGH_SCORE_FLASH - self.high_score_flash) % FLASH_PERIOD < FLASH_PERIOD / 2.0
     }
 
     /// Pauses a run or resumes a paused one. Does nothing before the run
@@ -284,6 +364,7 @@ impl Game {
             ..Self::new(0)
         };
         self.jump_was_down = true;
+        self.events.push(Event::Restart);
     }
 }
 
@@ -298,16 +379,19 @@ mod tests {
         jump_pressed: false,
         jump: false,
         duck: false,
+        restart: false,
     };
     const JUMP: Input = Input {
         jump_pressed: false,
         jump: true,
         duck: false,
+        restart: false,
     };
     const DUCK: Input = Input {
         jump_pressed: false,
         jump: false,
         duck: true,
+        restart: false,
     };
 
     fn run(game: &mut Game, seconds: f32, input: Input) {
@@ -319,9 +403,7 @@ mod tests {
     /// A running game with no random spawns, holding just `obstacle`.
     fn course(obstacle: Obstacle) -> Game {
         let mut game = Game::new(1);
-        game.update(DT, JUMP);
-        game.update(DT, NONE);
-        game.rex = Rex::new();
+        game.state = State::Running;
         // Nothing follows it.
         game.obstacles = vec![Obstacle {
             gap: f32::INFINITY,
@@ -347,8 +429,26 @@ mod tests {
         assert_eq!(game.distance, 0.0);
 
         game.update(DT, JUMP);
-        assert_eq!(game.state, State::Running);
+        assert_eq!(game.state, State::Intro(0.0));
         assert_eq!(game.rex.pose, Pose::Jumping);
+    }
+
+    #[test]
+    fn the_world_waits_for_the_intro() {
+        let mut game = Game::new(1);
+        game.update(DT, JUMP);
+        assert_eq!(game.reveal(), 0.0);
+        // The first jump lands in place, then the game opens out.
+        run(&mut game, 0.7, NONE);
+        assert!(matches!(game.state, State::Intro(t) if t > 0.0));
+        assert!(game.reveal() > 0.0 && game.reveal() < 1.0);
+        assert!(game.rex_x() < REX_X);
+        assert_eq!(game.distance, 0.0);
+        run(&mut game, INTRO_TIME, NONE);
+        assert_eq!(game.state, State::Running);
+        assert_eq!((game.reveal(), game.rex_x()), (1.0, REX_X));
+        run(&mut game, 0.1, NONE);
+        assert!(game.distance > 0.0);
     }
 
     #[test]
@@ -380,7 +480,7 @@ mod tests {
     #[test]
     fn obstacles_spawn_offscreen_and_scroll_left() {
         let mut game = Game::new(3);
-        game.update(DT, JUMP);
+        game.state = State::Running;
         run(&mut game, CLEAR_TIME - 0.1, NONE);
         assert!(game.obstacles.is_empty(), "obstacles before the clear time");
         run(&mut game, 0.2, NONE);
@@ -394,8 +494,7 @@ mod tests {
     #[test]
     fn each_obstacle_comes_its_gap_after_the_last() {
         let mut game = Game::new(5);
-        game.update(DT, JUMP);
-        game.rex = Rex::new();
+        game.state = State::Running;
         let mut checked = 0;
         let mut count = game.obstacles.len();
         // Collisions are cleared by hand to keep the run going until top
@@ -662,6 +761,48 @@ mod tests {
         let distance = game.distance;
         run(&mut game, 1.0, NONE);
         assert_eq!(game.distance, distance);
+    }
+
+    fn crashed() -> Game {
+        let mut game = course(Obstacle::new(Kind::LargeCactus(1), REX_X, 0.0));
+        play(&mut game, |_| NONE);
+        assert!(matches!(game.state, State::Over(_)));
+        game.events.clear();
+        game
+    }
+
+    #[test]
+    fn enter_or_a_click_restarts_at_once() {
+        let mut game = crashed();
+        game.update(
+            DT,
+            Input {
+                restart: true,
+                ..NONE
+            },
+        );
+        assert_eq!(game.state, State::Running);
+        assert_eq!(game.events, [Event::Restart]);
+    }
+
+    #[test]
+    fn a_second_click_on_the_high_score_resets_it() {
+        let mut game = crashed();
+        game.high_score = 900;
+        game.click_high_score();
+        assert!(game.high_score_flash > 0.0);
+        run(&mut game, 0.1, NONE);
+        assert!(game.high_score_hidden());
+        game.click_high_score();
+        assert_eq!(game.high_score, 0);
+
+        // Once the blinking stops, a click starts it again instead.
+        let mut game = crashed();
+        game.high_score = 900;
+        game.click_high_score();
+        run(&mut game, HIGH_SCORE_FLASH, NONE);
+        game.click_high_score();
+        assert_eq!(game.high_score, 900);
     }
 
     #[test]

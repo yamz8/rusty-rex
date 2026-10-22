@@ -39,6 +39,7 @@ impl Move {
             jump: self == Move::Jump,
             duck: self == Move::Duck,
             jump_pressed: self == Move::Jump,
+            restart: false,
         }
     }
 
@@ -65,6 +66,8 @@ impl Move {
 pub fn input(game: &Game, dt: f32) -> Input {
     match game.state {
         State::Running => {}
+        // Nothing comes during the intro; let the first jump play out.
+        State::Intro(_) => return Input::default(),
         State::Over(since) if since < RESTART_PAUSE => return Input::default(),
         // Start the first run, or the next one after a crash. Nothing was
         // held while waiting, so this is the fresh press the game asks for.
@@ -127,6 +130,8 @@ mod tests {
     fn starts_by_itself() {
         let mut game = Game::new(1);
         autoplay(&mut game, 0.1);
+        assert!(matches!(game.state, State::Intro(_)));
+        autoplay(&mut game, 1.5);
         assert_eq!(game.state, State::Running);
     }
 

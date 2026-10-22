@@ -208,6 +208,24 @@ pub const CLOUD: Grid = &[
     "#######################",
 ];
 
+/// The restart button under GAME OVER: an arrow going round, as in Chrome.
+pub const RESTART: Grid = &[
+    "......######......",
+    "....##########....",
+    "...###......###...",
+    "..##..........##..",
+    "...............##.",
+    "#####...........##",
+    ".###............##",
+    "..#.............##",
+    "................##",
+    "##.............##.",
+    ".##...........##..",
+    "..###.......###...",
+    "...###########....",
+    ".....#######......",
+];
+
 /// Which way the rex's legs are drawn this frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Legs {
@@ -315,6 +333,7 @@ pub struct Sheet {
     pub pterodactyl_wings_up: Sprite,
     pub pterodactyl_wings_down: Sprite,
     pub cloud: Sprite,
+    pub restart: Sprite,
 }
 
 const LEGS: [Legs; 3] = [Legs::Down, Legs::BackUp, Legs::FrontUp];
@@ -342,6 +361,7 @@ impl Sheet {
             pterodactyl_wings_up: Sprite::new(PTERODACTYL_WINGS_UP),
             pterodactyl_wings_down: Sprite::new(PTERODACTYL_WINGS_DOWN),
             cloud: Sprite::new(CLOUD),
+            restart: Sprite::new(RESTART),
         }
     }
 

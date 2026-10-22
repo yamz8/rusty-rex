@@ -55,6 +55,21 @@ pub fn visible_area(window_width: f32, window_height: f32) -> Rect {
     }
 }
 
+/// The playfield point under window pixel (`x`, `y`).
+pub fn playfield_point(window: (f32, f32), (x, y): (f32, f32)) -> (f32, f32) {
+    let area = visible_area(window.0, window.1);
+    (
+        area.x + x / window.0 * area.w,
+        area.y + y / window.1 * area.h,
+    )
+}
+
+impl Rect {
+    pub fn contains(self, (x, y): (f32, f32)) -> bool {
+        (self.x..=self.x + self.w).contains(&x) && (self.y..=self.y + self.h).contains(&y)
+    }
+}
+
 /// The part of `area` that is actually drawn: all of it, unless the window
 /// is so wide that it would show past MAX_SHOWN_WIDTH.
 pub fn shown(area: Rect) -> Rect {
@@ -71,6 +86,20 @@ pub fn shown(area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_pixels_map_back_to_the_playfield() {
+        // Twice the playfield's size: corners map to corners.
+        let window = (2.0 * PLAYFIELD_WIDTH, 2.0 * PLAYFIELD_HEIGHT);
+        assert_eq!(playfield_point(window, (0.0, 0.0)), (0.0, 0.0));
+        assert_eq!(
+            playfield_point(window, window),
+            (PLAYFIELD_WIDTH, PLAYFIELD_HEIGHT)
+        );
+        // A wider window shows extra space either side.
+        let wide = (2.0 * PLAYFIELD_WIDTH + 200.0, 2.0 * PLAYFIELD_HEIGHT);
+        assert_eq!(playfield_point(wide, (0.0, 0.0)), (-50.0, 0.0));
+    }
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.01

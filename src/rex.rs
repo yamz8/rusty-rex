@@ -39,6 +39,8 @@ pub struct Input {
     /// Jump went down since the last physics tick, even if it has been
     /// released again. The rex only takes off on this, never on a held key.
     pub jump_pressed: bool,
+    /// Enter or a click: restarts after a crash without waiting.
+    pub restart: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,22 +197,26 @@ mod tests {
         jump_pressed: true,
         jump: true,
         duck: false,
+        restart: false,
     };
     /// Jump held after the press.
     const JUMP: Input = Input {
         jump_pressed: false,
         jump: true,
         duck: false,
+        restart: false,
     };
     const DUCK: Input = Input {
         jump_pressed: false,
         jump: false,
         duck: true,
+        restart: false,
     };
     const NONE: Input = Input {
         jump_pressed: false,
         jump: false,
         duck: false,
+        restart: false,
     };
 
     /// Steps until the rex lands, returning the peak height and the time
@@ -380,6 +386,7 @@ mod tests {
             jump_pressed: true,
             jump: true,
             duck: true,
+            restart: false,
         };
         rex.update(DT, both, SPEED);
         assert_eq!(rex.pose, Pose::Ducking);

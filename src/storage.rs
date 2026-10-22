@@ -59,11 +59,14 @@ impl ScoreSaver {
         }
     }
 
+    /// Saves the high score when it differs from the one on disk: higher
+    /// after a record, or zero after the player resets it.
+    ///
     /// Only the first failure in a row is returned, so a lasting problem such
     /// as a read-only data directory is reported once rather than on every
     /// retry.
     pub fn save_if_needed(&mut self, path: &Path, score: u32, now: f64) -> io::Result<()> {
-        if score <= self.saved || now < self.retry_at {
+        if score == self.saved || now < self.retry_at {
             return Ok(());
         }
         match save(path, score) {
@@ -153,10 +156,19 @@ mod tests {
         saver.save_if_needed(&path, 200, 5.0).unwrap();
         assert_eq!(load(&path), 200);
         fs::remove_dir_all(&dir).unwrap();
-        // A confirmed save is not repeated, nor overwritten by a lower score.
+        // A confirmed save is not repeated.
         saver.save_if_needed(&path, 200, 10.0).unwrap();
-        saver.save_if_needed(&path, 100, 11.0).unwrap();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_reset_high_score_is_saved() {
+        let path = scratch("reset").join("high-score");
+        let mut saver = ScoreSaver::new(0);
+        saver.save_if_needed(&path, 300, 0.0).unwrap();
+        saver.save_if_needed(&path, 0, 1.0).unwrap();
+        assert_eq!(load(&path), 0);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

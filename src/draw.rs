@@ -3,11 +3,11 @@
 use std::fmt::Write;
 
 use crate::font;
-use crate::game::{Game, MOON_PHASES, REX_X, State};
+use crate::game::{Game, MOON_PHASES, State};
 use crate::gfx::{Color, Gfx};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
-use crate::rex::{Pose, Rex};
+use crate::rex::{Pose, STANDING_SIZE};
 use crate::sprites::{self, Legs, Sprite};
 use crate::view;
 
@@ -28,9 +28,16 @@ const MOON_SHADOWS: [Option<f32>; MOON_PHASES] = [
     Some(-16.0),
     Some(-8.0),
 ];
-/// While waiting, the rex blinks once at a random moment in each slot.
-const BLINK_SLOT: f64 = 4.0;
-const BLINK_TIME: f64 = 0.15;
+/// While waiting, Chrome's rex blinks after a random wait of up to 7 s, three
+/// times, then keeps its eyes open. A blink lasts one 3 fps frame.
+const BLINK_WAIT: f64 = 7.0;
+const BLINK_TIME: f64 = 1.0 / 3.0;
+const BLINKS: i64 = 3;
+/// The restart button is drawn at three times its grid's size, 54x42,
+/// about Chrome's size on a canvas this wide.
+const RESTART_PX: f32 = 3.0;
+/// Clicks this close around the high score count as on it, as in Chrome.
+const HIGH_SCORE_PADDING: f32 = 4.0;
 /// Clouds drift past at this fraction of the ground's speed, so they look
 /// far away; Chrome uses the same ratio.
 const CLOUD_PARALLAX: f32 = 0.2;
@@ -142,6 +149,8 @@ fn text(g: &mut Gfx, art: &Sprite, x: f32, y: f32, px: f32, col: Color) {
 }
 
 pub struct Renderer {
+    /// Where the high score was last drawn, for clicks on it.
+    high_score_bounds: Option<view::Rect>,
     banner: Option<Sprite>,
     current_score: ScoreText,
     high_score: ScoreText,
@@ -156,6 +165,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(banner: Option<Sprite>) -> Self {
         Self {
+            high_score_bounds: None,
             banner,
             current_score: ScoreText::new(""),
             high_score: ScoreText::new("HI "),
@@ -194,7 +204,8 @@ impl Renderer {
         if game.night > 0.0 {
             sky(g, area, shown, game.night, game.moon_phase(), &c);
         }
-        if let Some(art) = &self.banner {
+        let reveal = game.reveal();
+        if let Some(art) = self.banner.as_ref().filter(|_| reveal >= 1.0) {
             banner(g, art, shown, &c);
         }
         clouds(g, shown, game.distance, &c);
@@ -205,8 +216,20 @@ impl Renderer {
             }
         }
         let blink = game.state == State::Waiting && blinking(now);
-        rex(g, &game.rex, game.state, blink, &c);
+        rex(g, game, blink, &c);
         self.score(g, game, &c);
+
+        // Before the run, Chrome shows only the rex; the game then opens out
+        // from it. The banner and messages stay in view throughout.
+        if reveal < 1.0 {
+            let edge = game.rex_x() + STANDING_SIZE.0;
+            let right = shown.x + shown.w;
+            let edge = edge + (right - edge) * reveal;
+            g.rect(edge, area.y, area.x + area.w - edge, area.h, c.bg);
+            if let Some(art) = &self.banner {
+                banner(g, art, shown, &c);
+            }
+        }
 
         if muted {
             let px = self.muted.px;
@@ -228,10 +251,14 @@ impl Renderer {
                 self.resume.centred(g, 152.0, c.fg);
             }
             State::Over(_) => {
-                self.game_over.centred(g, 110.0, c.fg);
-                self.restart.centred(g, 152.0, c.fg);
+                self.game_over.centred(g, 80.0, c.fg);
+                let icon = &sprites::sheet().restart;
+                let (w, h) = (icon.cols as f32 * RESTART_PX, icon.rows as f32 * RESTART_PX);
+                let x = (view::PLAYFIELD_WIDTH - w) / 2.0;
+                sprite(g, icon, x, 112.0, w, h, c.fg, c.fg);
+                self.restart.centred(g, 168.0, c.fg);
             }
-            State::Running => {}
+            State::Intro(_) | State::Running => {}
         }
         g.end();
     }
@@ -244,12 +271,27 @@ impl Renderer {
         if !game.score_hidden() {
             current.draw(g, right - current.width(), y, c.fg);
         }
+        self.high_score_bounds = None;
         if game.high_score > 0 {
             self.high_score.update(game.high_score);
             let high = &self.high_score;
             let x = right - current.width() - 24.0 - high.width();
-            high.draw(g, x, y, c.faint);
+            if !game.high_score_hidden() {
+                high.draw(g, x, y, c.faint);
+            }
+            let pad = HIGH_SCORE_PADDING;
+            self.high_score_bounds = Some(view::Rect {
+                x: x - pad,
+                y: y - pad,
+                w: high.width() + 2.0 * pad,
+                h: high.art.rows as f32 * SCORE_PX + 2.0 * pad,
+            });
         }
+    }
+
+    /// Whether a playfield point is on the high score as last drawn.
+    pub fn on_high_score(&self, point: (f32, f32)) -> bool {
+        self.high_score_bounds.is_some_and(|b| b.contains(point))
     }
 }
 
@@ -291,14 +333,18 @@ fn banner_size(cols: usize, rows: usize) -> (f32, f32) {
     (px * cols as f32, px * rows as f32)
 }
 
-/// Whether the waiting rex has its eyes shut at `t` seconds. Chrome's rex
-/// blinks at random moments; hashing the slot keeps that irregular without
-/// any state.
+/// Whether the waiting rex has its eyes shut at `t` seconds. Hashing the
+/// blink number makes the waits irregular without any state.
 fn blinking(t: f64) -> bool {
-    let slot = (t / BLINK_SLOT).floor();
-    let at = f64::from(hash(slot as i64 + 9000) % 3000) / 1000.0;
-    let into = t - slot * BLINK_SLOT;
-    (at..at + BLINK_TIME).contains(&into)
+    let mut start = 0.0;
+    for i in 0..BLINKS {
+        start += f64::from(hash(i + 9000) % 1000 + 1) / 1000.0 * BLINK_WAIT;
+        if (start..start + BLINK_TIME).contains(&t) {
+            return true;
+        }
+        start += BLINK_TIME;
+    }
+    false
 }
 
 fn clouds(g: &mut Gfx, area: view::Rect, distance: f32, c: &Colors) {
@@ -402,14 +448,11 @@ fn ground(g: &mut Gfx, area: view::Rect, distance: f32, c: &Colors) {
     }
 }
 
-fn rex(g: &mut Gfx, rex: &Rex, state: State, blink: bool, c: &Colors) {
+fn rex(g: &mut Gfx, game: &Game, blink: bool, c: &Colors) {
+    let (rex, state) = (&game.rex, game.state);
     let crashed = matches!(state, State::Over(_));
     // Chrome draws the crash standing up, even when the rex was ducking.
-    let (w, h) = if crashed {
-        crate::rex::STANDING_SIZE
-    } else {
-        rex.size()
-    };
+    let (w, h) = if crashed { STANDING_SIZE } else { rex.size() };
     // Both feet stay down mid-air, and while waiting or after a crash.
     let legs = match (rex.pose, state) {
         (Pose::Jumping, _) | (_, State::Waiting | State::Over(_)) => Legs::Down,
@@ -419,7 +462,16 @@ fn rex(g: &mut Gfx, rex: &Rex, state: State, blink: bool, c: &Colors) {
     let art = sprites::sheet().rex(rex.pose == Pose::Ducking, crashed, legs);
     // Shutting the eye just paints it in the body colour.
     let eye = if blink { c.accent } else { c.bg };
-    sprite(g, art, REX_X, top(rex.height, h), w, h, c.accent, eye);
+    sprite(
+        g,
+        art,
+        game.rex_x(),
+        top(rex.height, h),
+        w,
+        h,
+        c.accent,
+        eye,
+    );
 }
 
 #[cfg(test)]
@@ -427,12 +479,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_waiting_rex_blinks_briefly_once_per_slot() {
+    fn the_waiting_rex_blinks_three_times_then_stops() {
         let step = 0.001;
         let mut blinks = 0;
         let mut shut_for = 0.0;
         let mut was_shut = false;
-        for i in 0..(10.0 * BLINK_SLOT / step) as i64 {
+        for i in 0..(60.0 / step) as i64 {
             let shut = blinking(i as f64 * step);
             if shut {
                 shut_for += step;
@@ -442,8 +494,8 @@ mod tests {
             }
             was_shut = shut;
         }
-        assert_eq!(blinks, 10);
-        assert!((shut_for - 10.0 * BLINK_TIME).abs() < 0.02, "{shut_for}");
+        assert_eq!(blinks, BLINKS);
+        assert!((shut_for - 3.0 * BLINK_TIME).abs() < 0.02, "{shut_for}");
     }
 
     #[test]
