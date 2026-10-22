@@ -399,18 +399,20 @@ fn ground(g: &mut Gfx, area: view::Rect, distance: f32, c: &Colors) {
 }
 
 fn rex(g: &mut Gfx, rex: &Rex, state: State, blink: bool, c: &Colors) {
-    let (w, h) = rex.size();
+    let crashed = matches!(state, State::Over(_));
+    // Chrome draws the crash standing up, even when the rex was ducking.
+    let (w, h) = if crashed {
+        crate::rex::STANDING_SIZE
+    } else {
+        rex.size()
+    };
     // Both feet stay down mid-air, and while waiting or after a crash.
     let legs = match (rex.pose, state) {
         (Pose::Jumping, _) | (_, State::Waiting | State::Over(_)) => Legs::Down,
         _ if rex.back_leg_up => Legs::BackUp,
         _ => Legs::FrontUp,
     };
-    let art = sprites::sheet().rex(
-        rex.pose == Pose::Ducking,
-        matches!(state, State::Over(_)),
-        legs,
-    );
+    let art = sprites::sheet().rex(rex.pose == Pose::Ducking, crashed, legs);
     // Shutting the eye just paints it in the body colour.
     let eye = if blink { c.accent } else { c.bg };
     sprite(g, art, REX_X, top(rex.height, h), w, h, c.accent, eye);

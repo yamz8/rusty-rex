@@ -177,7 +177,7 @@ impl Game {
 
     fn run(&mut self, dt: f32, input: Input) {
         let was_jumping = self.rex.pose == Pose::Jumping;
-        self.rex.update(dt, input);
+        self.rex.update(dt, input, self.speed);
         if !was_jumping && self.rex.pose == Pose::Jumping {
             self.events.push(Event::Jump);
         }

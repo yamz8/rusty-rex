@@ -79,19 +79,6 @@ const DUCK_BODY: Grid = &[
     "......#########...............",
 ];
 
-const DUCK_BODY_CRASHED: Grid = &[
-    "....................########..",
-    "...................#oo#######.",
-    "##.......###########oo########",
-    "#############################.",
-    ".########################.....",
-    "..#####################.......",
-    "...##################.##......",
-    "....###############...........",
-    ".....############.............",
-    "......#########...............",
-];
-
 const DUCK_LEGS_DOWN: Grid = &[
     "......###.##..................",
     "......##...#..................",
@@ -230,15 +217,12 @@ pub enum Legs {
 }
 
 /// Builds the rex's rows from head, body and legs, so the variants don't each
-/// repeat the whole drawing.
+/// repeat the whole drawing. A rex that crashed while ducking is drawn
+/// standing, as in Chrome.
 pub fn rex(ducking: bool, crashed: bool, legs: Legs) -> Vec<&'static str> {
     let mut rows = Vec::new();
-    if ducking {
-        rows.extend_from_slice(if crashed {
-            DUCK_BODY_CRASHED
-        } else {
-            DUCK_BODY
-        });
+    if ducking && !crashed {
+        rows.extend_from_slice(DUCK_BODY);
         rows.extend_from_slice(match legs {
             Legs::Down => DUCK_LEGS_DOWN,
             Legs::BackUp => DUCK_LEGS_BACK_UP,
@@ -475,14 +459,14 @@ mod tests {
             }
             cells
         };
-        for ducking in [false, true] {
-            for legs in LEGS {
-                assert_eq!(
-                    footprint(&rex(ducking, false, legs)),
-                    footprint(&rex(ducking, true, legs)),
-                    "ducking {ducking}, {legs:?}"
-                );
-            }
+        for legs in LEGS {
+            assert_eq!(
+                footprint(&rex(false, false, legs)),
+                footprint(&rex(false, true, legs)),
+                "{legs:?}"
+            );
+            // Crashing while ducking shows the standing crash, as in Chrome.
+            assert_eq!(rex(true, true, legs), rex(false, true, legs));
         }
     }
 
