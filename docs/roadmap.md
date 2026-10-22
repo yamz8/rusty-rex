@@ -11,4 +11,3 @@
 - [x] Esc to quit, and a click jumps like Space
 - [x] Moon phases that change each night, as in Chrome
 - [x] Rex blinks now and then on the start screen
-- [ ] Gamepad: jump and duck from a controller
