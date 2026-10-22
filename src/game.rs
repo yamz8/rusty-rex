@@ -26,12 +26,13 @@ pub const DESPAWN_X: f32 = -300.0;
 /// After a crash, jump is ignored this long so a panicked press doesn't skip
 /// straight past the game-over screen.
 pub const RESTART_DELAY: f32 = 0.5;
-/// Chrome's score is the distance in pixels times this.
+/// Chrome's score is the distance in whole pixels times this, rounded.
 const SCORE_PER_PIXEL: f32 = 0.025;
 /// Every this many points the score blinks, as in Chrome.
 pub const MILESTONE: u32 = 100;
-/// How long the score blinks after a milestone.
-pub const MILESTONE_FLASH: f32 = 0.8;
+/// Chrome blinks the score off and on four times, a quarter second each way.
+pub const MILESTONE_FLASH: f32 = 2.0;
+pub const FLASH_PERIOD: f32 = 0.5;
 /// Chrome brings on the night every this many points.
 pub const NIGHT_EVERY: u32 = 700;
 /// How long each night lasts before day returns, as in Chrome.
@@ -85,6 +86,8 @@ pub struct Game {
     pub high_score: u32,
     /// Seconds of score blinking left after the last milestone.
     pub milestone_flash: f32,
+    /// The milestone the score shows while it blinks.
+    milestone_score: u32,
     /// 0 is full day, 1 full night; in between while fading.
     pub night: f32,
     /// Seconds of night left; day returns when it runs out.
@@ -116,6 +119,7 @@ impl Game {
             obstacles: Vec::new(),
             high_score: 0,
             milestone_flash: 0.0,
+            milestone_score: 0,
             night: 0.0,
             night_left: 0.0,
             nights: 0,
@@ -164,7 +168,22 @@ impl Game {
     }
 
     pub fn score(&self) -> u32 {
-        (self.distance * SCORE_PER_PIXEL) as u32
+        (self.distance.ceil() * SCORE_PER_PIXEL).round() as u32
+    }
+
+    /// The score to display: it holds at the milestone while it blinks.
+    pub fn shown_score(&self) -> u32 {
+        if self.milestone_flash > 0.0 {
+            self.milestone_score
+        } else {
+            self.score()
+        }
+    }
+
+    /// Whether the blinking score is in its off half.
+    pub fn score_hidden(&self) -> bool {
+        self.milestone_flash > 0.0
+            && (MILESTONE_FLASH - self.milestone_flash) % FLASH_PERIOD < FLASH_PERIOD / 2.0
     }
 
     /// Tonight's moon phase, counting from the first night's.
@@ -204,8 +223,10 @@ impl Game {
         let before = self.score();
         self.distance += step;
         self.milestone_flash = (self.milestone_flash - dt).max(0.0);
-        if self.score() / MILESTONE > before / MILESTONE {
+        // Chrome ignores milestones while one is still blinking.
+        if self.score() / MILESTONE > before / MILESTONE && self.milestone_flash == 0.0 {
             self.milestone_flash = MILESTONE_FLASH;
+            self.milestone_score = self.score() / MILESTONE * MILESTONE;
             self.events.push(Event::Milestone);
         }
         self.night_left = (self.night_left - dt).max(0.0);
@@ -457,18 +478,30 @@ mod tests {
         run(&mut game, 1.0, NONE);
         // About 9 points a second at the starting speed.
         assert!((108..=110).contains(&game.score()), "{}", game.score());
+        // Whole pixels, rounded: 19.2 px is 20, which is half a point.
+        game.distance = 19.2;
+        assert_eq!(game.score(), 1);
+        game.distance = 19.0;
+        assert_eq!(game.score(), 0);
     }
 
     #[test]
     fn the_score_blinks_at_each_hundred() {
         let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
-        game.distance = 3990.0;
+        game.distance = 3970.0;
         game.update(DT, NONE);
         assert_eq!(game.milestone_flash, 0.0);
         run(&mut game, 0.1, NONE);
         assert!(game.milestone_flash > 0.0);
+        // It starts hidden and holds the milestone while the run goes on.
+        assert!(game.score_hidden());
+        run(&mut game, 0.3, NONE);
+        assert!(!game.score_hidden());
+        assert_eq!(game.shown_score(), 100);
+        assert!(game.score() > 100);
         run(&mut game, MILESTONE_FLASH, NONE);
         assert_eq!(game.milestone_flash, 0.0);
+        assert_eq!(game.shown_score(), game.score());
     }
 
     #[test]
@@ -514,7 +547,7 @@ mod tests {
         assert!(game.score() < 2 * NIGHT_EVERY);
 
         // The next 700 brings the next night.
-        game.distance = (2 * NIGHT_EVERY) as f32 / 0.025 - 1.0;
+        game.distance = (2 * NIGHT_EVERY) as f32 / 0.025 - 30.0;
         run(&mut game, 1.5, NONE);
         assert_eq!(game.night, 1.0);
     }
@@ -524,7 +557,7 @@ mod tests {
         let mut game = course(Obstacle::new(Kind::SmallCactus(1), 1e9, 0.0));
         let mut phases = Vec::new();
         for night in 1..=MOON_PHASES as u32 + 1 {
-            game.distance = (night * NIGHT_EVERY) as f32 / 0.025 - 1.0;
+            game.distance = (night * NIGHT_EVERY) as f32 / 0.025 - 30.0;
             run(&mut game, 0.1, NONE);
             phases.push(game.moon_phase());
         }
@@ -555,7 +588,7 @@ mod tests {
     fn reports_jumps_milestones_and_crashes() {
         let mut game = course(Obstacle::new(Kind::LargeCactus(1), 300.0, 0.0));
         game.events.clear();
-        game.distance = 99.9 / 0.025;
+        game.distance = 99.0 / 0.025;
         game.update(DT, JUMP);
         // Holding jump must not report more jumps.
         run(&mut game, 0.2, JUMP);

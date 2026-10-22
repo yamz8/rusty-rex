@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use crate::font;
-use crate::game::{Game, MILESTONE_FLASH, MOON_PHASES, REX_X, State};
+use crate::game::{Game, MOON_PHASES, REX_X, State};
 use crate::gfx::{Color, Gfx};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
@@ -85,8 +85,15 @@ impl ScoreText {
         if self.value == Some(value) {
             return;
         }
+        // Chrome shows five digits, then six once a score passes 99999,
+        // keeping the last six after that.
+        let (digits, shown) = if value > 99_999 {
+            (6, value % 1_000_000)
+        } else {
+            (5, value)
+        };
         self.text.clear();
-        write!(self.text, "{}{:05}", self.prefix, value).unwrap();
+        write!(self.text, "{}{:0digits$}", self.prefix, shown).unwrap();
         self.art = font::text(&self.text);
         self.value = Some(value);
     }
@@ -230,14 +237,11 @@ impl Renderer {
     }
 
     fn score(&mut self, g: &mut Gfx, game: &Game, c: &Colors) {
-        // Chrome blinks the score on and off a few times at each milestone.
-        let blink_off = game.milestone_flash > 0.0
-            && ((MILESTONE_FLASH - game.milestone_flash) / 0.2) as u32 % 2 == 1;
         let right = view::PLAYFIELD_WIDTH - 20.0;
         let y = 26.0;
-        self.current_score.update(game.score());
+        self.current_score.update(game.shown_score());
         let current = &self.current_score;
-        if !blink_off {
+        if !game.score_hidden() {
             current.draw(g, right - current.width(), y, c.fg);
         }
         if game.high_score > 0 {
@@ -474,6 +478,8 @@ mod tests {
         assert_eq!(score.width(), 35.0 * SCORE_PX);
         score.update(0);
         assert_eq!(score.text, "00000");
+        score.update(1_234_567);
+        assert_eq!(score.text, "234567");
 
         let mut high = ScoreText::new("HI ");
         high.update(42);
