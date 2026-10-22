@@ -6,6 +6,7 @@ description = "The offline dinosaur runner, in Rust"
 license = "MIT"
 
 [dependencies]
+gilrs = "0.11"
 macroquad = { version = "0.4.16", features = ["audio"] }
 
 [profile.release]

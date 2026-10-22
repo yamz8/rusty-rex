@@ -2,6 +2,7 @@ mod clock;
 mod draw;
 mod game;
 mod obstacle;
+mod pad;
 mod palette;
 mod rex;
 mod session;
@@ -51,16 +52,18 @@ fn linux_backend(has_x11: bool, has_wayland: bool) -> Option<LinuxBackend> {
     }
 }
 
-fn read_input() -> Input {
+fn read_input(pad: pad::PadInput) -> Input {
     Input {
         // A left click jumps too, as in Chrome.
         jump: is_key_down(KeyCode::Space)
             || is_key_down(KeyCode::Up)
-            || is_mouse_button_down(MouseButton::Left),
-        duck: is_key_down(KeyCode::Down),
+            || is_mouse_button_down(MouseButton::Left)
+            || pad.jump,
+        duck: is_key_down(KeyCode::Down) || pad.duck,
         jump_pressed: is_key_pressed(KeyCode::Space)
             || is_key_pressed(KeyCode::Up)
-            || is_mouse_button_pressed(MouseButton::Left),
+            || is_mouse_button_pressed(MouseButton::Left)
+            || pad.jump_pressed,
     }
 }
 
@@ -171,6 +174,7 @@ async fn run() {
     let mut muted = false;
     let mut session = Session::default();
     let mut renderer = draw::Renderer::new();
+    let mut pads = pad::Pads::new();
     let mut previous_frame = get_time();
     // Returning ends macroquad's main future, which closes the window. The
     // high score is already saved by the frame that set it.
@@ -178,7 +182,9 @@ async fn run() {
         let now = get_time();
         let elapsed = (now - previous_frame) as f32;
         previous_frame = now;
-        session.advance(&mut game, elapsed, read_input(), is_key_pressed(KeyCode::P));
+        let pad = pads.poll();
+        let pause = is_key_pressed(KeyCode::P) || pad.pause_pressed;
+        session.advance(&mut game, elapsed, read_input(pad), pause);
         if is_key_pressed(KeyCode::M) {
             muted = !muted;
         }

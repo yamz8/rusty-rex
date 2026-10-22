@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc='The offline dinosaur runner, in Rust'
 arch=('x86_64' 'aarch64')
 license=('MIT')
-depends=('libx11' 'libxi' 'mesa' 'alsa-lib')
+depends=('libx11' 'libxi' 'mesa' 'alsa-lib' 'systemd-libs')
 # Cargo comes from rustup in ~/.cargo, not pacman, so it isn't a makedepend.
 makedepends=()
 source=()

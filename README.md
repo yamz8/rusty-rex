@@ -50,6 +50,9 @@ Or download the x86_64 build, with its desktop entry and icon, from the
 | <kbd>M</kbd>       | Mute                                            |
 | <kbd>Esc</kbd>     | Quit                                            |
 
+A controller works too: A (cross on PlayStation), d-pad up or the left stick
+up jumps, d-pad down or the stick down ducks, and Start pauses.
+
 ## Build from source
 
 Rust comes from `omarchy install dev-env rust`.
