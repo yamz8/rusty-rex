@@ -14,7 +14,6 @@ mod theme;
 mod view;
 
 use game::{Event, Game, State};
-use macroquad::audio::{Sound, load_sound_from_bytes, play_sound_once};
 use macroquad::miniquad::conf::{LinuxBackend, Platform};
 use macroquad::prelude::*;
 use palette::Palette;
@@ -151,32 +150,34 @@ fn read_input() -> Input {
     }
 }
 
+/// The sound effects and the audio thread that plays them. Creating this
+/// starts the audio stack, so the silent screensaver never does.
 struct Sounds {
-    jump: Sound,
-    milestone: Sound,
-    crash: Sound,
+    context: quad_snd::AudioContext,
+    jump: quad_snd::Sound,
+    milestone: quad_snd::Sound,
+    crash: quad_snd::Sound,
 }
 
 impl Sounds {
-    /// None when a sound can't be loaded; the game is still playable silent.
-    async fn load() -> Option<Self> {
-        Some(Self {
-            jump: load_sound_from_bytes(&sound::wav(sound::JUMP)).await.ok()?,
-            milestone: load_sound_from_bytes(&sound::wav(sound::MILESTONE))
-                .await
-                .ok()?,
-            crash: load_sound_from_bytes(&sound::wav(sound::CRASH))
-                .await
-                .ok()?,
-        })
+    fn load() -> Self {
+        let context = quad_snd::AudioContext::new();
+        let load = |notes| quad_snd::Sound::load(&context, &sound::wav(notes));
+        Self {
+            jump: load(sound::JUMP),
+            milestone: load(sound::MILESTONE),
+            crash: load(sound::CRASH),
+            context,
+        }
     }
 
     fn play(&self, event: Event) {
-        play_sound_once(match event {
+        let sound = match event {
             Event::Jump => &self.jump,
             Event::Milestone => &self.milestone,
             Event::Crash => &self.crash,
-        });
+        };
+        sound.play(&self.context, quad_snd::PlaySoundParams::default());
     }
 }
 
@@ -279,14 +280,7 @@ async fn run(mode: Mode, banner: Option<sprites::Sprite>) {
         game.high_score = storage::load(path);
     }
     let mut score_saver = storage::ScoreSaver::new(game.high_score);
-    let sounds = if screensaver {
-        None
-    } else {
-        Sounds::load().await
-    };
-    if sounds.is_none() && !screensaver {
-        eprintln!("rusty-rex: couldn't load sounds, playing silent");
-    }
+    let sounds = (!screensaver).then(Sounds::load);
     let mut theme = Theme::new();
     // Muting lasts until the game closes.
     let mut muted = false;

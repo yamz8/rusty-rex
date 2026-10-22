@@ -6,7 +6,10 @@ description = "The offline dinosaur runner, in Rust"
 license = "MIT"
 
 [dependencies]
-macroquad = { version = "0.4.16", features = ["audio"] }
+macroquad = "0.4.16"
+# Used directly rather than through macroquad's audio feature, which starts
+# the audio thread with every window, even the silent screensaver's.
+quad-snd = "0.2.8"
 
 [profile.release]
 lto = true

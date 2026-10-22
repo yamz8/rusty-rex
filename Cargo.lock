@@ -214,7 +214,6 @@ dependencies = [
  "macroquad_macro",
  "miniquad",
  "quad-rand",
- "quad-snd",
 ]
 
 [[package]]
@@ -349,6 +348,7 @@ name = "rusty-rex"
 version = "1.4.1"
 dependencies = [
  "macroquad",
+ "quad-snd",
 ]
 
 [[package]]
