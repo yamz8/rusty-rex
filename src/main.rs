@@ -53,9 +53,14 @@ fn linux_backend(has_x11: bool, has_wayland: bool) -> Option<LinuxBackend> {
 
 fn read_input() -> Input {
     Input {
-        jump: is_key_down(KeyCode::Space) || is_key_down(KeyCode::Up),
+        // A left click jumps too, as in Chrome.
+        jump: is_key_down(KeyCode::Space)
+            || is_key_down(KeyCode::Up)
+            || is_mouse_button_down(MouseButton::Left),
         duck: is_key_down(KeyCode::Down),
-        jump_pressed: is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::Up),
+        jump_pressed: is_key_pressed(KeyCode::Space)
+            || is_key_pressed(KeyCode::Up)
+            || is_mouse_button_pressed(MouseButton::Left),
     }
 }
 
@@ -167,7 +172,9 @@ async fn run() {
     let mut session = Session::default();
     let mut renderer = draw::Renderer::new();
     let mut previous_frame = get_time();
-    loop {
+    // Returning ends macroquad's main future, which closes the window. The
+    // high score is already saved by the frame that set it.
+    while !is_key_pressed(KeyCode::Escape) {
         let now = get_time();
         let elapsed = (now - previous_frame) as f32;
         previous_frame = now;

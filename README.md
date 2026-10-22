@@ -44,10 +44,11 @@ Or download the x86_64 build, with its desktop entry and icon, from the
 
 | Key                | Action                                          |
 | ------------------ | ----------------------------------------------- |
-| <kbd>Space</kbd> / <kbd>↑</kbd> | Jump: hold for a higher jump, tap for a hop |
+| <kbd>Space</kbd> / <kbd>↑</kbd> / click | Jump: hold for a higher jump, tap for a hop |
 | <kbd>↓</kbd>       | Duck under pterodactyls, or drop faster mid-jump |
 | <kbd>P</kbd>       | Pause                                           |
 | <kbd>M</kbd>       | Mute                                            |
+| <kbd>Esc</kbd>     | Quit                                            |
 
 ## Build from source
 

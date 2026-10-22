@@ -106,11 +106,11 @@ impl Renderer {
             dpi_scale: screen_dpi_scale(),
             current_score: ScoreText::new(""),
             high_score: ScoreText::new("HI "),
-            start: Label::new("Press Space to start", 24.0),
+            start: Label::new("Press Space or click to start", 24.0),
             paused: Label::new("P A U S E D", 32.0),
             resume: Label::new("Press P to carry on", 20.0),
             game_over: Label::new("G A M E   O V E R", 32.0),
-            restart: Label::new("Press Space to play again", 20.0),
+            restart: Label::new("Press Space or click to play again", 20.0),
         }
     }
 
