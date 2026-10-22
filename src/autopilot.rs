@@ -9,7 +9,7 @@ use crate::game::{Game, State};
 use crate::rex::Input;
 
 /// How far ahead each move is tried. It must be longer than a full jump
-/// (0.65 s), or a jump started too late would still look safe.
+/// (about 0.55 s), or a jump started too late would still look safe.
 const HORIZON: f32 = 0.8;
 /// After a crash the game-over screen stays up this long before the next run,
 /// so it reads as a crash rather than a flicker.

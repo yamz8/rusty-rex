@@ -4,8 +4,8 @@
 //! Like the rex, this never touches the window or GL. Horizontal positions are in
 //! playfield pixels and heights in pixels above the ground.
 
-use crate::obstacle::{self, Hitbox, Kind, Obstacle, Rng};
-use crate::rex::{Input, Pose, Rex};
+use crate::obstacle::{self, Hitbox, Kind, Obstacle, Rng, SpriteBox};
+use crate::rex::{Input, Pose, Rex, STANDING_SIZE};
 
 /// Where the rex stands; the world scrolls past it instead of it moving.
 pub const REX_X: f32 = 60.0;
@@ -19,14 +19,8 @@ pub const ACCELERATION: f32 = 3.6;
 /// New obstacles appear here, past the right edge of the playfield, so they
 /// slide in rather than pop up even when the window shows a little extra.
 pub const SPAWN_X: f32 = 1200.0;
-/// Seconds of open ground between one obstacle leaving and the next arriving
-/// at the slowest; a full jump lasts 0.65 s, so there is always room to land
-/// and jump again.
-const MIN_GAP_TIME: f32 = 0.8;
-/// Gaps vary up to this multiple of the minimum.
-const MAX_GAP_FACTOR: f32 = 1.5;
-/// Distance before the first obstacle, giving the player a moment to settle.
-const FIRST_SPAWN_DISTANCE: f32 = 360.0;
+/// Chrome sends no obstacles for the first 3 seconds of a run.
+const CLEAR_TIME: f32 = 3.0;
 /// Obstacles this far left of the playfield are gone for good.
 pub const DESPAWN_X: f32 = -300.0;
 /// After a crash, jump is ignored this long so a panicked press doesn't skip
@@ -46,9 +40,17 @@ const NIGHT_LENGTH: f32 = 12.0;
 const NIGHT_FADE_TIME: f32 = 1.0;
 /// Chrome's moon goes through this many phases, one each night.
 pub const MOON_PHASES: usize = 7;
-/// The rex's hitbox is trimmed more than the obstacles', since its sprite
-/// leaves empty corners above the tail and under the jaw.
-const REX_HITBOX_INSET: f32 = 6.0;
+/// Chrome's collision boxes for the rex, standing and ducking. Both are in
+/// the standing sprite's 47 px frame, with the duck at its bottom.
+const REX_RUNNING_BOXES: [SpriteBox; 6] = [
+    (22.0, 0.0, 17.0, 16.0),
+    (1.0, 18.0, 30.0, 9.0),
+    (10.0, 35.0, 14.0, 8.0),
+    (1.0, 24.0, 29.0, 5.0),
+    (5.0, 30.0, 21.0, 4.0),
+    (9.0, 34.0, 15.0, 4.0),
+];
+const REX_DUCKING_BOXES: [SpriteBox; 1] = [(1.0, 18.0, 55.0, 25.0)];
 
 /// Things that happened during an update, for the sound effects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,8 +95,8 @@ pub struct Game {
     /// Events since the caller last drained them.
     pub events: Vec<Event>,
     rng: Rng,
-    /// Distance left before the next obstacle spawns.
-    until_spawn: f32,
+    /// Seconds since this run started, for Chrome's clear time.
+    running_time: f32,
     /// The last two kinds spawned, newest last.
     recent: Vec<Kind>,
     /// Jump was held last update. Starting, restarting and take-off need a
@@ -119,7 +121,7 @@ impl Game {
             nights: 0,
             events: Vec::new(),
             rng: Rng::new(seed),
-            until_spawn: FIRST_SPAWN_DISTANCE,
+            running_time: 0.0,
             recent: Vec::new(),
             jump_was_down: false,
         }
@@ -170,9 +172,25 @@ impl Game {
         self.nights.saturating_sub(1) as usize % MOON_PHASES
     }
 
-    pub fn rex_hitbox(&self) -> Hitbox {
-        let (w, h) = self.rex.size();
-        Hitbox::new(REX_X, self.rex.height, w, h).inset(REX_HITBOX_INSET)
+    /// Whether the rex touches an obstacle, tested as Chrome does: a rough
+    /// box first, then each of the rex's boxes against each of the
+    /// obstacle's. The rough box is always the standing rex's, as in Chrome.
+    fn crashed(&self) -> bool {
+        let (w, h) = STANDING_SIZE;
+        let outline = Hitbox::outline(REX_X, self.rex.height, w, h);
+        let boxes: &[SpriteBox] = if self.rex.pose == Pose::Ducking {
+            &REX_DUCKING_BOXES
+        } else {
+            &REX_RUNNING_BOXES
+        };
+        let mut rex = [outline; REX_RUNNING_BOXES.len()];
+        for (placed, &b) in rex.iter_mut().zip(boxes) {
+            *placed = Hitbox::place(b, REX_X, self.rex.height, h);
+        }
+        let rex = &rex[..boxes.len()];
+        self.obstacles
+            .iter()
+            .any(|o| o.outline().overlaps(&outline) && o.hits(rex))
     }
 
     fn run(&mut self, dt: f32, input: Input) {
@@ -201,18 +219,23 @@ impl Game {
         self.speed = (self.speed + ACCELERATION * dt).min(MAX_SPEED);
 
         for o in &mut self.obstacles {
-            o.x -= step;
+            o.x -= step + o.speed_offset * dt;
             o.age += dt;
         }
         self.obstacles.retain(|o| o.right() > DESPAWN_X);
 
-        self.until_spawn -= step;
-        if self.until_spawn <= 0.0 {
+        // As in Chrome, the next obstacle comes once the last one is its gap
+        // clear of where obstacles appear.
+        self.running_time += dt;
+        let due = match self.obstacles.last() {
+            Some(last) => last.right() + last.gap < SPAWN_X,
+            None => self.running_time > CLEAR_TIME,
+        };
+        if due {
             self.spawn();
         }
 
-        let rex = self.rex_hitbox();
-        if self.obstacles.iter().any(|o| o.hitbox().overlaps(&rex)) {
+        if self.crashed() {
             self.state = State::Over(0.0);
             self.milestone_flash = 0.0;
             self.events.push(Event::Crash);
@@ -221,9 +244,8 @@ impl Game {
     }
 
     fn spawn(&mut self) {
-        let o = obstacle::choose(&mut self.rng, self.speed, &self.recent, SPAWN_X);
-        let gap = self.speed * MIN_GAP_TIME * (1.0 + (MAX_GAP_FACTOR - 1.0) * self.rng.unit());
-        self.until_spawn = o.size().0 + gap;
+        let mut o = obstacle::choose(&mut self.rng, self.speed, &self.recent, SPAWN_X);
+        o.gap = o.choose_gap(self.speed, &mut self.rng);
         self.recent.push(o.kind);
         if self.recent.len() > 2 {
             self.recent.remove(0);
@@ -247,7 +269,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::obstacle::PTERODACTYL_LANES;
+    use crate::obstacle::{PTERODACTYL_LANES, PTERODACTYL_SPEED_OFFSET};
     use crate::rex::Pose;
 
     const DT: f32 = 1.0 / 120.0;
@@ -279,8 +301,11 @@ mod tests {
         game.update(DT, JUMP);
         game.update(DT, NONE);
         game.rex = Rex::new();
-        game.until_spawn = f32::INFINITY;
-        game.obstacles = vec![obstacle];
+        // Nothing follows it.
+        game.obstacles = vec![Obstacle {
+            gap: f32::INFINITY,
+            ..obstacle
+        }];
         game
     }
 
@@ -335,7 +360,9 @@ mod tests {
     fn obstacles_spawn_offscreen_and_scroll_left() {
         let mut game = Game::new(3);
         game.update(DT, JUMP);
-        run(&mut game, 1.1, NONE);
+        run(&mut game, CLEAR_TIME - 0.1, NONE);
+        assert!(game.obstacles.is_empty(), "obstacles before the clear time");
+        run(&mut game, 0.2, NONE);
         assert_eq!(game.obstacles.len(), 1);
         let x = game.obstacles[0].x;
         assert!(x > 960.0 && x <= SPAWN_X);
@@ -344,27 +371,30 @@ mod tests {
     }
 
     #[test]
-    fn gaps_leave_room_to_land() {
+    fn each_obstacle_comes_its_gap_after_the_last() {
         let mut game = Game::new(5);
         game.update(DT, JUMP);
         game.rex = Rex::new();
         let mut checked = 0;
         let mut count = game.obstacles.len();
-        // Ducking keeps the rex low but doesn't stop the crash check, so
-        // collisions are cleared by hand to keep the run going. The run lasts
-        // long enough to reach top speed, where gaps are tightest in pixels
-        // per second.
+        // Collisions are cleared by hand to keep the run going until top
+        // speed, where gaps are tightest.
         for _ in 0..(150.0 / DT) as u32 {
             game.update(DT, DUCK);
             game.state = State::Running;
             if game.obstacles.len() > count && game.obstacles.len() >= 2 {
-                // Measured the moment the new obstacle appears, in seconds
-                // at the current speed, which is what the player gets.
                 let [.., before, new] = &game.obstacles[..] else {
                     unreachable!()
                 };
-                let seconds = (new.x - before.right()) / game.speed;
-                assert!(seconds >= MIN_GAP_TIME - DT, "gap {seconds} s");
+                // It appears on the tick the gap opens, so the space is the
+                // gap plus at most one tick of movement.
+                let space = new.x - before.right();
+                let tick = (game.speed + PTERODACTYL_SPEED_OFFSET) * DT;
+                assert!(
+                    (before.gap..before.gap + tick + 0.01).contains(&space),
+                    "space {space}, gap {}",
+                    before.gap
+                );
                 checked += 1;
             }
             count = game.obstacles.len();
