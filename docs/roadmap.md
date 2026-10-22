@@ -18,3 +18,5 @@
 - [x] Draw on miniquad directly, silent screensaver without an audio stack
 - [ ] `--rex FILE`: swap the runner for half-block art, keeping the rex's
       hitbox whatever is drawn
+- [ ] Memoise the autopilot's look-ahead if its CPU cost ever shows; it
+      branches at every landing and obstacle, about 1% CPU in practice

@@ -19,6 +19,11 @@ pub const ACCELERATION: f32 = 3.6;
 /// New obstacles appear here, past the right edge of the playfield, so they
 /// slide in rather than pop up even when the window shows a little extra.
 pub const SPAWN_X: f32 = 1200.0;
+/// A pterodactyl's own speed only counts from here on. Chrome's appear at
+/// the canvas edge, 550 px ahead of the rex; ours start further out, and
+/// flying at their own speed all that way would close or widen their gaps
+/// twice as much as in Chrome.
+pub const DRIFT_FROM: f32 = REX_X + 550.0;
 /// Chrome sends no obstacles for the first 3 seconds of a run.
 const CLEAR_TIME: f32 = 3.0;
 /// Obstacles this far left of the playfield are gone for good.
@@ -339,7 +344,12 @@ impl Game {
         self.speed = (self.speed + ACCELERATION * dt).min(MAX_SPEED);
 
         for o in &mut self.obstacles {
-            o.x -= step + o.speed_offset * dt;
+            let own = if o.x < DRIFT_FROM {
+                o.speed_offset
+            } else {
+                0.0
+            };
+            o.x -= step + own * dt;
             o.age += dt;
         }
         self.obstacles.retain(|o| o.right() > DESPAWN_X);
@@ -543,6 +553,26 @@ mod tests {
         assert!(x > 960.0 && x <= SPAWN_X);
         game.update(DT, NONE);
         assert!(game.obstacles[0].x < x);
+    }
+
+    #[test]
+    fn pterodactyls_fly_their_own_speed_only_over_chromes_distance() {
+        let far = Obstacle {
+            speed_offset: PTERODACTYL_SPEED_OFFSET,
+            ..Obstacle::new(Kind::Pterodactyl, SPAWN_X, 50.0)
+        };
+        let mut game = course(far);
+        let before = game.obstacles[0].x;
+        game.update(DT, NONE);
+        let moved = before - game.obstacles[0].x;
+        assert!((moved - game.speed * DT).abs() < 0.01, "{moved}");
+
+        game.obstacles[0].x = DRIFT_FROM - 100.0;
+        let before = game.obstacles[0].x;
+        game.update(DT, NONE);
+        let moved = before - game.obstacles[0].x;
+        let expected = (game.speed + PTERODACTYL_SPEED_OFFSET) * DT;
+        assert!((moved - expected).abs() < 0.01, "{moved}");
     }
 
     #[test]
