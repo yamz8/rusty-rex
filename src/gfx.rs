@@ -36,6 +36,8 @@ void main() {
     gl_FragColor = color;
 }"#;
 
+/// Uploaded to the GPU inside each vertex, so its layout is fixed.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Color {
     pub r: f32,

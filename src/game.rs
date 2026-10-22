@@ -200,11 +200,7 @@ impl Game {
     /// The first jump happens in place; once the rex lands, the game opens
     /// out and the run begins.
     fn intro(&mut self, dt: f32, input: Input) {
-        let was_jumping = self.rex.pose == Pose::Jumping;
-        self.rex.update(dt, input, self.speed);
-        if !was_jumping && self.rex.pose == Pose::Jumping {
-            self.events.push(Event::Jump);
-        }
+        self.step_rex(dt, input);
         if let State::Intro(landed) = self.state
             && self.rex.on_ground()
         {
@@ -248,8 +244,7 @@ impl Game {
 
     /// Whether the blinking high score is in its off half.
     pub fn high_score_hidden(&self) -> bool {
-        self.high_score_flash > 0.0
-            && (HIGH_SCORE_FLASH - self.high_score_flash) % FLASH_PERIOD < FLASH_PERIOD / 2.0
+        blink_off(HIGH_SCORE_FLASH, self.high_score_flash)
     }
 
     /// Pauses a run or resumes a paused one. Does nothing before the run
@@ -277,8 +272,7 @@ impl Game {
 
     /// Whether the blinking score is in its off half.
     pub fn score_hidden(&self) -> bool {
-        self.milestone_flash > 0.0
-            && (MILESTONE_FLASH - self.milestone_flash) % FLASH_PERIOD < FLASH_PERIOD / 2.0
+        blink_off(MILESTONE_FLASH, self.milestone_flash)
     }
 
     /// Tonight's moon phase, counting from the first night's.
@@ -307,12 +301,17 @@ impl Game {
             .any(|o| o.outline().overlaps(&outline) && o.hits(rex))
     }
 
-    fn run(&mut self, dt: f32, input: Input) {
+    /// Moves the rex, reporting a take-off for the jump sound.
+    fn step_rex(&mut self, dt: f32, input: Input) {
         let was_jumping = self.rex.pose == Pose::Jumping;
         self.rex.update(dt, input, self.speed);
         if !was_jumping && self.rex.pose == Pose::Jumping {
             self.events.push(Event::Jump);
         }
+    }
+
+    fn run(&mut self, dt: f32, input: Input) {
+        self.step_rex(dt, input);
 
         let step = self.speed * dt;
         let before = self.score();
@@ -388,6 +387,12 @@ impl Game {
         self.jump_was_down = true;
         self.events.push(Event::Restart);
     }
+}
+
+/// Whether a blink lasting `total` seconds, with `left` to go, is in the off
+/// half of its period. Chrome's blinks start off.
+fn blink_off(total: f32, left: f32) -> bool {
+    left > 0.0 && (total - left) % FLASH_PERIOD < FLASH_PERIOD / 2.0
 }
 
 /// The CSS easing curve with control points `[x1, y1, x2, y2]`, at `p`

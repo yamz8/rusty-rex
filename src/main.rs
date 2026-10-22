@@ -180,6 +180,12 @@ impl Keys {
         self.click_down = false;
     }
 
+    /// Uses up this frame's click, so it neither presses nor holds jump.
+    fn take_click(&mut self) {
+        self.clicked = None;
+        self.click_down = false;
+    }
+
     fn end_frame(&mut self) {
         self.pressed.clear();
         self.clicked = None;
@@ -395,14 +401,19 @@ impl Stage {
                 ))
             {
                 game.click_high_score();
-                self.keys.clicked = None;
+                self.keys.take_click();
             }
             // Like Chrome, stop when the window loses focus and carry on
             // when it comes back.
             let mut pause = self.keys.was_pressed(KeyCode::P);
-            if std::mem::take(&mut self.focus_lost) && game.state == State::Running {
+            // Focus lost during the intro pauses the run as soon as it
+            // starts, unless focus is back by then.
+            if self.focus_lost && game.state == State::Running {
                 pause = !pause;
                 self.paused_for_focus = true;
+            }
+            if (self.focus_lost && !matches!(game.state, State::Intro(_))) || self.focus_back {
+                self.focus_lost = false;
             }
             if std::mem::take(&mut self.focus_back)
                 && std::mem::take(&mut self.paused_for_focus)
@@ -445,7 +456,7 @@ impl Stage {
         // Nobody plays the screensaver, so half the display's frame rate is
         // plenty, and it halves the GPU time. Waiting, paused and game-over
         // screens barely move.
-        if screensaver || game.state != State::Running {
+        if screensaver || !game.is_live() {
             // Miniquad 0.4.11 cannot wake a blocked X11 event loop from a
             // timer. A short idle sleep also keeps theme polling and save
             // retries working, without a platform-specific wakeup thread.
@@ -530,6 +541,19 @@ mod tests {
         assert_eq!(args(&["--screensaver", "-h"]), Ok(Command::Help));
         assert_eq!(args(&["--version"]), Ok(Command::Version));
         assert!(args(&["--screen"]).is_err());
+    }
+
+    #[test]
+    fn a_click_used_up_does_not_hold_jump() {
+        let mut keys = Keys {
+            click_down: true,
+            clicked: Some((1.0, 2.0)),
+            ..Keys::default()
+        };
+        assert!(keys.input().jump && keys.input().restart);
+        keys.take_click();
+        let input = keys.input();
+        assert!(!input.jump && !input.jump_pressed && !input.restart);
     }
 
     #[test]
