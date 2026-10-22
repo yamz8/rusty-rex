@@ -12,8 +12,8 @@ up in the app launcher.
 - `bin/install` runs `makepkg -fi` and needs sudo. Never hand it back to the
   user: run `omarchy-launch-floating-terminal-with-presentation "bin/install"`
   (absolute path) so they type the password in an Omarchy terminal.
-- Cargo lives in `~/.cargo/bin` (rustup) and isn't on PATH in every shell;
-  the `bin/` scripts source `~/.cargo/env` when needed.
+- The `bin/` scripts share `bin/cargo-env`, which checks that Cargo works
+  and falls back to `~/.cargo/bin` when PATH contains an unconfigured shim.
 
 ## Releasing
 
@@ -39,6 +39,7 @@ up in the app launcher.
     night and sound events.
   - `src/obstacle.rs` cacti and pterodactyls, hitboxes, the seeded RNG.
   - `src/clock.rs` fixed 1/120 s physics ticks.
+  - `src/session.rs` buffered input, fixed ticks and idle/resume timing.
   - `src/view.rs` fitting the 960x320 playfield into any window size.
   - `src/palette.rs` colours and the day/night blend.
   - `src/theme.rs` reads the Omarchy theme's `colors.toml`.

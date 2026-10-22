@@ -2,7 +2,7 @@
 # Run lints and the test suite.
 set -e
 cd "$(dirname "$0")/.."
-command -v cargo >/dev/null || source "$HOME/.cargo/env"
+source bin/cargo-env
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked

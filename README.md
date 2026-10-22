@@ -21,6 +21,13 @@ bin/install    # install as an Arch package (shows up in the app launcher)
 ```
 
 Rust comes from `omarchy install dev-env rust`.
+The scripts use a working Cargo from PATH, falling back to `~/.cargo/bin`
+if a toolchain-manager shim is unconfigured. Builds and tests use `Cargo.lock`.
+
+Waiting, paused and game-over screens cap rendering at 30 FPS, while still
+handling input, resizing, theme changes and save retries.
+Gameplay keeps its fixed 120 Hz physics ticks, including brief jump presses
+between ticks.
 
 ## License
 

@@ -1,6 +1,7 @@
 //! Everything that puts pixels on screen. Game state is only read here.
 
 use macroquad::prelude::*;
+use std::fmt::Write;
 
 use crate::game::{Game, MILESTONE_FLASH, REX_X, State};
 use crate::obstacle::{Kind, Obstacle};
@@ -33,71 +34,184 @@ fn color(c: Rgb) -> Color {
     Color::new(c.r, c.g, c.b, 1.0)
 }
 
-pub fn frame(game: &Game, day: Palette, muted: bool) {
-    let p = day.at_night(game.night);
-    let c = Colors {
-        bg: color(p.background),
-        fg: color(p.foreground),
-        faint: color(p.faint),
-        accent: color(p.accent),
-    };
+/// Formatting and measurement are only needed when a displayed score changes.
+struct ScoreText {
+    value: Option<u32>,
+    prefix: &'static str,
+    text: String,
+    width: f32,
+}
 
-    clear_background(c.bg);
-    let area = view::visible_area(screen_width(), screen_height());
-    let mut camera = Camera2D::from_display_rect(Rect::new(area.x, area.y, area.w, area.h));
-    // from_display_rect flips y for render targets, which turns the scene
-    // upside down when drawing straight to the window, so flip it back.
-    camera.zoom.y = -camera.zoom.y;
-    set_camera(&camera);
-
-    if game.night > 0.0 {
-        sky(area, game.night, &c);
-    }
-    clouds(area, game.distance, &c);
-    ground(area, game.distance, &c);
-    for o in &game.obstacles {
-        obstacle(o, &c);
-    }
-    rex(&game.rex, game.state, &c);
-    score(game, &c);
-
-    if muted {
-        draw_text("MUTED", 20.0, 40.0, 18.0, c.faint);
-    }
-
-    // Cover anything past the widest stretch the game shows, so obstacles
-    // can't be seen appearing or vanishing on very wide windows.
-    let shown = view::shown(area);
-    if shown.w < area.w {
-        let right = shown.x + shown.w;
-        draw_rectangle(area.x, area.y, shown.x - area.x, area.h, c.bg);
-        draw_rectangle(right, area.y, area.x + area.w - right, area.h, c.bg);
-    }
-
-    match game.state {
-        State::Waiting => centred_text("Press Space to start", 150.0, 24.0, c.fg),
-        State::Paused => {
-            centred_text("P A U S E D", 130.0, 32.0, c.fg);
-            centred_text("Press P to carry on", 165.0, 20.0, c.fg);
+impl ScoreText {
+    fn new(prefix: &'static str) -> Self {
+        Self {
+            value: None,
+            prefix,
+            text: String::with_capacity(16),
+            width: 0.0,
         }
-        State::Over(_) => {
-            centred_text("G A M E   O V E R", 130.0, 32.0, c.fg);
-            centred_text("Press Space to play again", 165.0, 20.0, c.fg);
+    }
+
+    fn update(&mut self, value: u32, measure: impl FnOnce(&str) -> f32) {
+        if self.value == Some(value) {
+            return;
         }
-        State::Running => {}
+        self.text.clear();
+        write!(self.text, "{}{:05}", self.prefix, value).unwrap();
+        self.width = measure(&self.text);
+        self.value = Some(value);
+    }
+}
+
+struct Label {
+    text: &'static str,
+    size: f32,
+    width: f32,
+}
+
+impl Label {
+    fn new(text: &'static str, size: f32) -> Self {
+        Self {
+            text,
+            size,
+            width: measure_text(text, None, size as u16, 1.0).width,
+        }
+    }
+
+    fn centred(&self, y: f32, col: Color) {
+        draw_text(
+            self.text,
+            (view::PLAYFIELD_WIDTH - self.width) / 2.0,
+            y,
+            self.size,
+            col,
+        );
+    }
+}
+
+pub struct Renderer {
+    dpi_scale: f32,
+    current_score: ScoreText,
+    high_score: ScoreText,
+    start: Label,
+    paused: Label,
+    resume: Label,
+    game_over: Label,
+    restart: Label,
+}
+
+impl Renderer {
+    pub fn new() -> Self {
+        Self {
+            dpi_scale: screen_dpi_scale(),
+            current_score: ScoreText::new(""),
+            high_score: ScoreText::new("HI "),
+            start: Label::new("Press Space to start", 24.0),
+            paused: Label::new("P A U S E D", 32.0),
+            resume: Label::new("Press P to carry on", 20.0),
+            game_over: Label::new("G A M E   O V E R", 32.0),
+            restart: Label::new("Press Space to play again", 20.0),
+        }
+    }
+
+    pub fn frame(&mut self, game: &Game, day: Palette, muted: bool) {
+        // Font metrics can change when the window moves between monitors.
+        if self.dpi_scale != screen_dpi_scale() {
+            *self = Self::new();
+        }
+        let p = day.at_night(game.night);
+        let c = Colors {
+            bg: color(p.background),
+            fg: color(p.foreground),
+            faint: color(p.faint),
+            accent: color(p.accent),
+        };
+
+        clear_background(c.bg);
+        let area = view::visible_area(screen_width(), screen_height());
+        let shown = view::shown(area);
+        let mut camera = Camera2D::from_display_rect(Rect::new(area.x, area.y, area.w, area.h));
+        // from_display_rect flips y for render targets, which turns the scene
+        // upside down when drawing straight to the window, so flip it back.
+        camera.zoom.y = -camera.zoom.y;
+        set_camera(&camera);
+
+        if game.night > 0.0 {
+            sky(area, shown, game.night, &c);
+        }
+        clouds(shown, game.distance, &c);
+        ground(shown, game.distance, &c);
+        for o in &game.obstacles {
+            if shown.intersects_x(o.x, o.size().0) {
+                obstacle(o, &c);
+            }
+        }
+        rex(&game.rex, game.state, &c);
+        self.score(game, &c);
+
+        if muted {
+            draw_text("MUTED", 20.0, 40.0, 18.0, c.faint);
+        }
+
+        // Cover anything past the widest stretch the game shows, so obstacles
+        // can't be seen appearing or vanishing on very wide windows.
+        if shown.w < area.w {
+            let right = shown.x + shown.w;
+            draw_rectangle(area.x, area.y, shown.x - area.x, area.h, c.bg);
+            draw_rectangle(right, area.y, area.x + area.w - right, area.h, c.bg);
+        }
+
+        match game.state {
+            State::Waiting => self.start.centred(150.0, c.fg),
+            State::Paused => {
+                self.paused.centred(130.0, c.fg);
+                self.resume.centred(165.0, c.fg);
+            }
+            State::Over(_) => {
+                self.game_over.centred(130.0, c.fg);
+                self.restart.centred(165.0, c.fg);
+            }
+            State::Running => {}
+        }
+    }
+
+    fn score(&mut self, game: &Game, c: &Colors) {
+        // Chrome blinks the score on and off a few times at each milestone.
+        let blink_off = game.milestone_flash > 0.0
+            && ((MILESTONE_FLASH - game.milestone_flash) / 0.2) as u32 % 2 == 1;
+        let size = 22.0;
+        let right = view::PLAYFIELD_WIDTH - 20.0;
+        let y = 40.0;
+        let measure = |text: &str| measure_text(text, None, size as u16, 1.0).width;
+        self.current_score.update(game.score(), measure);
+        let current = &self.current_score;
+        if !blink_off {
+            draw_text(&current.text, right - current.width, y, size, c.fg);
+        }
+        if game.high_score > 0 {
+            self.high_score.update(game.high_score, measure);
+            let high = &self.high_score;
+            let x = right - current.width - 24.0 - high.width;
+            draw_text(&high.text, x, y, size, c.faint);
+        }
     }
 }
 
 /// The moon and stars fade in with the night, as in Chrome.
-fn sky(area: view::Rect, night: f32, c: &Colors) {
+fn sky(area: view::Rect, shown: view::Rect, night: f32, c: &Colors) {
     let fade = |col: Color| Color::new(col.r, col.g, col.b, night);
     for i in 0..STAR_COUNT {
         let h = hash(i + 1000);
         let x = area.x + (h % 1000) as f32 / 1000.0 * area.w;
         let y = 20.0 + ((h >> 10) % 140) as f32;
-        draw_rectangle(x, y, 2.0, 2.0, fade(c.faint));
+        if shown.intersects_x(x, 2.0) {
+            draw_rectangle(x, y, 2.0, 2.0, fade(c.faint));
+        }
     }
     let (moon_x, moon_y, r) = (area.x + area.w * 0.75, 70.0, 16.0);
+    if !shown.intersects_x(moon_x - r, r * 2.0 + 8.0) {
+        return;
+    }
     draw_circle(moon_x, moon_y, r, fade(c.fg));
     // Covering part of the full moon with the sky colour leaves a crescent.
     draw_circle(moon_x + 8.0, moon_y - 3.0, r, c.bg);
@@ -117,33 +231,10 @@ fn clouds(area: view::Rect, distance: f32, c: &Colors) {
             slot as f32 * CLOUD_SLOT - scrolled + (seed >> 4) as f32 % (CLOUD_SLOT - CLOUD_SIZE.0);
         let y = 70.0 + ((seed >> 12) % 80) as f32;
         let (w, h) = CLOUD_SIZE;
-        sprite(&sprites::sheet().cloud, x, y, w, h, c.faint, c.bg);
+        if area.intersects_x(x, w) {
+            sprite(&sprites::sheet().cloud, x, y, w, h, c.faint, c.bg);
+        }
     }
-}
-
-fn score(game: &Game, c: &Colors) {
-    // Chrome blinks the score on and off a few times at each milestone.
-    let blink_off = game.milestone_flash > 0.0
-        && ((MILESTONE_FLASH - game.milestone_flash) / 0.2) as u32 % 2 == 1;
-    let size = 22.0;
-    let right = view::PLAYFIELD_WIDTH - 20.0;
-    let y = 40.0;
-    let current = format!("{:05}", game.score());
-    let current_width = measure_text(&current, None, size as u16, 1.0).width;
-    if !blink_off {
-        draw_text(&current, right - current_width, y, size, c.fg);
-    }
-    if game.high_score > 0 {
-        let high = format!("HI {:05}", game.high_score);
-        let high_width = measure_text(&high, None, size as u16, 1.0).width;
-        let x = right - current_width - 24.0 - high_width;
-        draw_text(&high, x, y, size, c.faint);
-    }
-}
-
-fn centred_text(text: &str, y: f32, size: f32, col: Color) {
-    let width = measure_text(text, None, size as u16, 1.0).width;
-    draw_text(text, (view::PLAYFIELD_WIDTH - width) / 2.0, y, size, col);
 }
 
 /// Screen y of the top of something `height` above the ground and `h` tall.
@@ -188,7 +279,7 @@ fn sprite(art: &Sprite, x: f32, y: f32, w: f32, h: f32, fill: Color, eye: Color)
             x + run.x as f32 * px,
             y + run.y as f32 * py,
             run.len as f32 * px,
-            py,
+            run.height as f32 * py,
             if run.eye { eye } else { fill },
         );
     }
@@ -227,7 +318,9 @@ fn ground(area: view::Rect, distance: f32, c: &Colors) {
         let x = slot as f32 * PEBBLE_SLOT - distance + (h >> 4) as f32 % PEBBLE_SLOT;
         let y = GROUND_Y + 5.0 + ((h >> 10) % 9) as f32;
         let len = 2.0 + ((h >> 16) % 5) as f32;
-        draw_rectangle(x, y, len, 1.5, c.fg);
+        if area.intersects_x(x, len) {
+            draw_rectangle(x, y, len, 1.5, c.fg);
+        }
     }
 }
 
@@ -245,4 +338,28 @@ fn rex(rex: &Rex, state: State, c: &Colors) {
         legs,
     );
     sprite(art, REX_X, top(rex.height, h), w, h, c.accent, c.bg);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn score_cache_measures_only_changes_and_handles_reset_and_extra_digits() {
+        let mut score = ScoreText::new("");
+        score.update(99_999, |s| s.len() as f32);
+        assert_eq!(score.text, "99999");
+        score.update(99_999, |_| panic!("unchanged score was measured again"));
+        score.update(100_000, |s| s.len() as f32);
+        assert_eq!(score.text, "100000");
+        assert_eq!(score.width, 6.0);
+        score.update(0, |s| s.len() as f32);
+        assert_eq!(score.text, "00000");
+        assert_eq!(score.width, 5.0);
+
+        let mut high = ScoreText::new("HI ");
+        high.update(42, |s| s.len() as f32);
+        assert_eq!(high.text, "HI 00042");
+        high.update(42, |_| panic!("unchanged high score was measured again"));
+    }
 }

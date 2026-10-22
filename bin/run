@@ -2,5 +2,5 @@
 # Build and play in debug mode.
 set -e
 cd "$(dirname "$0")/.."
-command -v cargo >/dev/null || source "$HOME/.cargo/env"
-cargo run "$@"
+source bin/cargo-env
+cargo run --locked "$@"

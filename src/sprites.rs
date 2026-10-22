@@ -256,19 +256,20 @@ pub fn rex(ducking: bool, crashed: bool, legs: Legs) -> Vec<&'static str> {
     rows
 }
 
-/// A horizontal stretch of same-coloured pixels. Drawing runs instead of
-/// single pixels means far fewer rectangles and no seams inside a row.
+/// Identical horizontal runs merged across adjacent rows. Each rectangle
+/// covers only one colour and is built once along with the sprite sheet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Run {
     pub x: usize,
     pub y: usize,
     pub len: usize,
+    pub height: usize,
     /// Drawn in the background colour rather than the sprite's.
     pub eye: bool,
 }
 
 pub fn runs(rows: &[&str]) -> Vec<Run> {
-    let mut out = Vec::new();
+    let mut out: Vec<Run> = Vec::new();
     for (y, row) in rows.iter().enumerate() {
         // Grids are plain ASCII, so bytes index the cells directly.
         let cells = row.as_bytes();
@@ -280,12 +281,21 @@ pub fn runs(rows: &[&str]) -> Vec<Run> {
                 x += 1;
             }
             if c != b'.' {
-                out.push(Run {
-                    x: start,
-                    y,
-                    len: x - start,
-                    eye: c == b'o',
-                });
+                let len = x - start;
+                let eye = c == b'o';
+                if let Some(run) = out.iter_mut().rev().find(|run| {
+                    run.x == start && run.len == len && run.eye == eye && run.y + run.height == y
+                }) {
+                    run.height += 1;
+                } else {
+                    out.push(Run {
+                        x: start,
+                        y,
+                        len,
+                        height: 1,
+                        eye,
+                    });
+                }
             }
         }
     }
@@ -484,7 +494,12 @@ mod tests {
         );
         let normal = runs(&rex(false, false, Legs::Down));
         let crashed = runs(&rex(false, true, Legs::Down));
-        let eye = |r: &[Run]| r.iter().filter(|r| r.eye).map(|r| r.len).sum::<usize>();
+        let eye = |r: &[Run]| {
+            r.iter()
+                .filter(|r| r.eye)
+                .map(|r| r.len * r.height)
+                .sum::<usize>()
+        };
         assert!(eye(&crashed) > eye(&normal));
     }
 
@@ -510,27 +525,69 @@ mod tests {
                     x: 0,
                     y: 0,
                     len: 1,
+                    height: 1,
                     eye: false
                 },
                 Run {
                     x: 2,
                     y: 0,
                     len: 2,
+                    height: 1,
                     eye: false
                 },
                 Run {
                     x: 4,
                     y: 0,
                     len: 1,
+                    height: 1,
                     eye: true
                 },
                 Run {
                     x: 2,
                     y: 1,
                     len: 3,
+                    height: 1,
                     eye: true
                 },
             ]
         );
+    }
+
+    #[test]
+    fn merged_rectangles_preserve_every_sprite_pixel_without_overlap() {
+        let mut grids = all_rex();
+        grids.extend(
+            [
+                SMALL_CACTUS,
+                LARGE_CACTUS,
+                PTERODACTYL_WINGS_UP,
+                PTERODACTYL_WINGS_DOWN,
+                CLOUD,
+            ]
+            .map(|grid| grid.to_vec()),
+        );
+        for grid in grids {
+            let mut pixels = vec![vec![b'.'; grid[0].len()]; grid.len()];
+            for run in runs(&grid) {
+                for row in &mut pixels[run.y..run.y + run.height] {
+                    for pixel in &mut row[run.x..run.x + run.len] {
+                        assert_eq!(*pixel, b'.', "overlapping rectangles");
+                        *pixel = if run.eye { b'o' } else { b'#' };
+                    }
+                }
+            }
+            for (actual, expected) in pixels.iter().zip(&grid) {
+                assert_eq!(actual, expected.as_bytes());
+            }
+        }
+    }
+
+    #[test]
+    fn matching_rows_merge_but_gaps_and_colours_do_not() {
+        let merged = runs(&["##oo", "##oo", "....", "##oo", "oooo"]);
+        assert_eq!(merged.len(), 5);
+        assert_eq!(merged[0].height, 2);
+        assert_eq!(merged[1].height, 2);
+        assert!(merged[2..].iter().all(|r| r.height == 1));
     }
 }

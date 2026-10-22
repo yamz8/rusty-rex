@@ -43,6 +43,38 @@ pub fn save(path: &Path, score: u32) -> io::Result<()> {
     fs::rename(&tmp, path)
 }
 
+/// Remembers successful writes and backs off after a failed one.
+pub struct ScoreSaver {
+    saved: u32,
+    retry_at: f64,
+}
+
+impl ScoreSaver {
+    pub fn new(saved: u32) -> Self {
+        Self {
+            saved,
+            retry_at: 0.0,
+        }
+    }
+
+    pub fn save_if_needed(&mut self, path: &Path, score: u32, now: f64) -> io::Result<()> {
+        if score <= self.saved || now < self.retry_at {
+            return Ok(());
+        }
+        match save(path, score) {
+            Ok(()) => {
+                self.saved = score;
+                Ok(())
+            }
+            Err(error) => {
+                // Avoid retrying disk I/O and logging on every frame.
+                self.retry_at = now + 5.0;
+                Err(error)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +127,38 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(&path, "not a number").unwrap();
         assert_eq!(load(&path), 0);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_saves_back_off_then_retry_the_latest_score() {
+        let dir = scratch("retry");
+        fs::write(&dir, "blocks directory creation").unwrap();
+        let path = dir.join("high-score");
+        let mut saver = ScoreSaver::new(0);
+        assert!(saver.save_if_needed(&path, 100, 0.0).is_err());
+        fs::remove_file(&dir).unwrap();
+        saver.save_if_needed(&path, 200, 4.9).unwrap();
+        assert!(!path.exists());
+        saver.save_if_needed(&path, 200, 5.0).unwrap();
+        assert_eq!(load(&path), 200);
+        fs::remove_dir_all(&dir).unwrap();
+        // A confirmed save is not repeated, nor overwritten by a lower score.
+        saver.save_if_needed(&path, 200, 10.0).unwrap();
+        saver.save_if_needed(&path, 100, 11.0).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn failed_save_retries_even_without_another_record() {
+        let dir = scratch("same-score-retry");
+        fs::write(&dir, "blocks directory creation").unwrap();
+        let path = dir.join("high-score");
+        let mut saver = ScoreSaver::new(50);
+        assert!(saver.save_if_needed(&path, 100, 0.0).is_err());
+        fs::remove_file(&dir).unwrap();
+        saver.save_if_needed(&path, 100, 5.0).unwrap();
+        assert_eq!(load(&path), 100);
         fs::remove_dir_all(dir).unwrap();
     }
 }
