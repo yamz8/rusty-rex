@@ -42,9 +42,8 @@ const MOON_SHADOWS: [Option<f32>; MOON_PHASES] = [
 const BLINK_WAIT: f64 = 7.0;
 const BLINK_TIME: f64 = 1.0 / 3.0;
 const BLINKS: i64 = 3;
-/// The restart button is drawn at three times its grid's size, 54x42,
-/// about Chrome's size on a canvas this wide.
-const RESTART_PX: f32 = 3.0;
+/// The restart button is drawn at twice its grid's size: Chrome's 36x32.
+const RESTART_PX: f32 = 2.0;
 /// Clicks this close around the high score count as on it, as in Chrome.
 const HIGH_SCORE_PADDING: f32 = 4.0;
 /// Each slot this wide may hold one cloud.
@@ -165,7 +164,6 @@ pub struct Renderer {
     paused: Label,
     resume: Label,
     game_over: Label,
-    restart: Label,
 }
 
 impl Renderer {
@@ -180,7 +178,6 @@ impl Renderer {
             paused: Label::new("P A U S E D", TITLE_PX),
             resume: Label::new("Press P to carry on", LINE_PX),
             game_over: Label::new("G A M E   O V E R", TITLE_PX),
-            restart: Label::new("Press Space or click to play again", LINE_PX),
         }
     }
 
@@ -256,13 +253,13 @@ impl Renderer {
                 self.paused.centred(g, 110.0, c.fg);
                 self.resume.centred(g, 152.0, c.fg);
             }
+            // As in Chrome, the button is the only hint how to play again.
             State::Over(_) => {
-                self.game_over.centred(g, 80.0, c.fg);
+                self.game_over.centred(g, 96.0, c.fg);
                 let icon = &sprites::sheet().restart;
                 let (w, h) = (icon.cols as f32 * RESTART_PX, icon.rows as f32 * RESTART_PX);
                 let x = (view::PLAYFIELD_WIDTH - w) / 2.0;
-                sprite(g, icon, x, 112.0, w, h, c.fg, c.fg);
-                self.restart.centred(g, 168.0, c.fg);
+                sprite(g, icon, x, 132.0, w, h, c.fg, c.fg);
             }
             State::Intro(_) | State::Running => {}
         }

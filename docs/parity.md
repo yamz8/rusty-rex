@@ -94,8 +94,8 @@ left out on purpose; *extra* is Rusty Rex's own.
 |---|---|---|---|
 | Waiting rex | Only the rex shows; it blinks after random waits of up to 7 s, three times | Same (`draw.rs`) | same |
 | Intro | The first jump happens in place; on landing the game widens out from the rex over 0.4 s while the rex walks in, and the world starts moving after | Same (`game.rs`, `draw.rs`) | same |
-| Prompt | Page text below the game | Drawn in the playfield (`draw.rs`) | differs: there is no page around the game |
-| Game over | GAME OVER and a restart button that animates | Same text and button, the button still (`draw.rs`, `sprites.rs`) | close |
+| Prompt | Page text below the game | Drawn in the playfield before the first run and while paused (`draw.rs`) | differs: there is no page around the game |
+| Game over | GAME OVER and a restart button that animates, with no other hint | Same text and button, the button still (`draw.rs`, `sprites.rs`) | close |
 | Restart | Enter or a click at once, jump keys after 1.2 s, on key release; plays the button sound | Same, on key press (`game.rs`) | close |
 | Losing focus | Switching tabs or windows stops the game; coming back carries on | Same where the window system reports focus: X11, the default (`main.rs`) | close |
 | Pause key | — | P pauses and resumes | extra |
