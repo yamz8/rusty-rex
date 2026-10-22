@@ -18,23 +18,11 @@ pub const CRASH: &[Note] = &[(130.0, 0.08), (0.0, 0.03), (98.0, 0.16)];
 
 /// Renders notes into a 16-bit mono WAV. A frequency of 0 is a rest.
 pub fn wav(notes: &[Note]) -> Vec<u8> {
-    let mut samples: Vec<i16> = Vec::new();
-    for &(freq, seconds) in notes {
-        let n = (seconds * SAMPLE_RATE as f32) as usize;
-        let ramp = ((RAMP_SECONDS * SAMPLE_RATE as f32) as usize).max(1);
-        for i in 0..n {
-            if freq == 0.0 {
-                samples.push(0);
-                continue;
-            }
-            let phase = (i as f32 * freq / SAMPLE_RATE as f32).fract();
-            let square = if phase < 0.5 { 1.0 } else { -1.0 };
-            let envelope = (i.min(n - 1 - i) as f32 / ramp as f32).min(1.0);
-            samples.push((square * envelope * VOLUME * i16::MAX as f32) as i16);
-        }
-    }
-
-    let data_len = (samples.len() * 2) as u32;
+    let sample_count: usize = notes
+        .iter()
+        .map(|&(_, seconds)| (seconds * SAMPLE_RATE as f32) as usize)
+        .sum();
+    let data_len = (sample_count * 2) as u32;
     let mut out = Vec::with_capacity(44 + data_len as usize);
     out.extend_from_slice(b"RIFF");
     out.extend_from_slice(&(36 + data_len).to_le_bytes());
@@ -49,8 +37,20 @@ pub fn wav(notes: &[Note]) -> Vec<u8> {
     out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
     out.extend_from_slice(b"data");
     out.extend_from_slice(&data_len.to_le_bytes());
-    for s in samples {
-        out.extend_from_slice(&s.to_le_bytes());
+    let ramp = ((RAMP_SECONDS * SAMPLE_RATE as f32) as usize).max(1);
+    for &(freq, seconds) in notes {
+        let n = (seconds * SAMPLE_RATE as f32) as usize;
+        for i in 0..n {
+            let sample = if freq == 0.0 {
+                0
+            } else {
+                let phase = (i as f32 * freq / SAMPLE_RATE as f32).fract();
+                let square = if phase < 0.5 { 1.0 } else { -1.0 };
+                let envelope = (i.min(n - 1 - i) as f32 / ramp as f32).min(1.0);
+                (square * envelope * VOLUME * i16::MAX as f32) as i16
+            };
+            out.extend_from_slice(&sample.to_le_bytes());
+        }
     }
     out
 }

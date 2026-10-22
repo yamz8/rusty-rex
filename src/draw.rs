@@ -34,6 +34,71 @@ fn color(c: Rgb) -> Color {
     Color::new(c.r, c.g, c.b, 1.0)
 }
 
+const MOON_RADIUS: f32 = 16.0;
+const MOON_SEGMENTS: usize = 20;
+const MOON_VERTICES: usize = MOON_SEGMENTS + 2;
+
+/// Keep the circle geometry instead of allocating and tessellating it each
+/// night frame. The second circle covers the first to leave a crescent.
+struct Moon {
+    mesh: Mesh,
+}
+
+impl Moon {
+    fn new() -> Self {
+        let points: [Vec2; MOON_VERTICES] = std::array::from_fn(|i| {
+            if i == 0 {
+                Vec2::ZERO
+            } else {
+                // Match draw_circle's 20-sided polygon, including its final
+                // repeated perimeter vertex and floating-point arithmetic.
+                let angle = (i - 1) as f32 / MOON_SEGMENTS as f32 * std::f32::consts::PI * 2.0;
+                vec2(angle.cos(), angle.sin())
+            }
+        });
+        let vertices = points
+            .iter()
+            .cycle()
+            .take(MOON_VERTICES * 2)
+            .map(|p| Vertex::new(0.0, 0.0, 0.0, p.x, p.y, WHITE))
+            .collect();
+        let mut indices = Vec::with_capacity(MOON_SEGMENTS * 6);
+        for base in [0, MOON_VERTICES as u16] {
+            for i in 0..MOON_SEGMENTS as u16 {
+                indices.extend_from_slice(&[base, base + i + 1, base + i + 2]);
+            }
+        }
+        Self {
+            mesh: Mesh {
+                vertices,
+                indices,
+                texture: None,
+            },
+        }
+    }
+
+    fn update(&mut self, x: f32, fill: Color, background: Color) {
+        let circles = [(vec2(x, 70.0), fill), (vec2(x + 8.0, 67.0), background)];
+        for (vertices, (centre, color)) in self
+            .mesh
+            .vertices
+            .as_chunks_mut::<MOON_VERTICES>()
+            .0
+            .iter_mut()
+            .zip(circles)
+        {
+            let color = color.into();
+            for vertex in vertices {
+                // The untextured circle's UVs retain its unit offsets, so
+                // repeated resizing cannot accumulate translation errors.
+                vertex.position.x = centre.x + MOON_RADIUS * vertex.uv.x;
+                vertex.position.y = centre.y + MOON_RADIUS * vertex.uv.y;
+                vertex.color = color;
+            }
+        }
+    }
+}
+
 /// Formatting and measurement are only needed when a displayed score changes.
 struct ScoreText {
     value: Option<u32>,
@@ -91,6 +156,7 @@ impl Label {
 
 pub struct Renderer {
     dpi_scale: f32,
+    moon: Moon,
     current_score: ScoreText,
     high_score: ScoreText,
     start: Label,
@@ -104,6 +170,7 @@ impl Renderer {
     pub fn new() -> Self {
         Self {
             dpi_scale: screen_dpi_scale(),
+            moon: Moon::new(),
             current_score: ScoreText::new(""),
             high_score: ScoreText::new("HI "),
             start: Label::new("Press Space to start", 24.0),
@@ -137,7 +204,7 @@ impl Renderer {
         set_camera(&camera);
 
         if game.night > 0.0 {
-            sky(area, shown, game.night, &c);
+            sky(area, shown, game.night, &c, &mut self.moon);
         }
         clouds(shown, game.distance, &c);
         ground(shown, game.distance, &c);
@@ -198,7 +265,7 @@ impl Renderer {
 }
 
 /// The moon and stars fade in with the night, as in Chrome.
-fn sky(area: view::Rect, shown: view::Rect, night: f32, c: &Colors) {
+fn sky(area: view::Rect, shown: view::Rect, night: f32, c: &Colors, moon: &mut Moon) {
     let fade = |col: Color| Color::new(col.r, col.g, col.b, night);
     for i in 0..STAR_COUNT {
         let h = hash(i + 1000);
@@ -208,13 +275,12 @@ fn sky(area: view::Rect, shown: view::Rect, night: f32, c: &Colors) {
             draw_rectangle(x, y, 2.0, 2.0, fade(c.faint));
         }
     }
-    let (moon_x, moon_y, r) = (area.x + area.w * 0.75, 70.0, 16.0);
-    if !shown.intersects_x(moon_x - r, r * 2.0 + 8.0) {
+    let moon_x = area.x + area.w * 0.75;
+    if !shown.intersects_x(moon_x - MOON_RADIUS, MOON_RADIUS * 2.0 + 8.0) {
         return;
     }
-    draw_circle(moon_x, moon_y, r, fade(c.fg));
-    // Covering part of the full moon with the sky colour leaves a crescent.
-    draw_circle(moon_x + 8.0, moon_y - 3.0, r, c.bg);
+    moon.update(moon_x, fade(c.fg), c.bg);
+    draw_mesh(&moon.mesh);
 }
 
 fn clouds(area: view::Rect, distance: f32, c: &Colors) {
@@ -343,6 +409,61 @@ fn rex(rex: &Rex, state: State, c: &Colors) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moon_mesh_matches_both_original_circles_after_resizing_and_recolouring() {
+        // Reproduce draw_circle's geometry independently of the cache,
+        // including its closing vertex and the opaque circle drawn last.
+        fn circle(mesh: &mut Mesh, x: f32, y: f32, color: Color) {
+            let base = mesh.vertices.len() as u16;
+            mesh.vertices.push(Vertex::new(x, y, 0.0, 0.0, 0.0, color));
+            for i in 0..=20 {
+                let rx = (i as f32 / 20.0 * std::f32::consts::PI * 2.0).cos();
+                let ry = (i as f32 / 20.0 * std::f32::consts::PI * 2.0).sin();
+                mesh.vertices.push(Vertex::new(
+                    x + 16.0 * rx,
+                    y + 16.0 * ry,
+                    0.0,
+                    rx,
+                    ry,
+                    color,
+                ));
+                if i != 20 {
+                    mesh.indices
+                        .extend_from_slice(&[base, base + i + 1, base + i + 2]);
+                }
+            }
+        }
+
+        let mut moon = Moon::new();
+        let vertices = moon.mesh.vertices.as_ptr();
+        let indices = moon.mesh.indices.as_ptr();
+        for x in [720.0, 880.375, -27.125, 720.0] {
+            for alpha in [0.0, 0.375, 1.0] {
+                let fill = Color::new(0.2, 0.5, 0.8, alpha);
+                let background = Color::new(0.7 - alpha * 0.3, 0.2, 0.1, 1.0);
+                moon.update(x, fill, background);
+                let mut expected = Mesh {
+                    vertices: Vec::new(),
+                    indices: Vec::new(),
+                    texture: None,
+                };
+                circle(&mut expected, x, 70.0, fill);
+                circle(&mut expected, x + 8.0, 70.0 - 3.0, background);
+                assert_eq!(moon.mesh.vertices.len(), expected.vertices.len());
+                for (actual, expected) in moon.mesh.vertices.iter().zip(&expected.vertices) {
+                    assert_eq!(actual.position, expected.position);
+                    assert_eq!(actual.uv, expected.uv);
+                    assert_eq!(actual.color, expected.color);
+                    assert_eq!(actual.normal, expected.normal);
+                }
+                assert_eq!(moon.mesh.indices, expected.indices);
+                assert!(moon.mesh.texture.is_none());
+                assert_eq!(moon.mesh.vertices.as_ptr(), vertices);
+                assert_eq!(moon.mesh.indices.as_ptr(), indices);
+            }
+        }
+    }
 
     #[test]
     fn score_cache_measures_only_changes_and_handles_reset_and_extra_digits() {
