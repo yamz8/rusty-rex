@@ -3,6 +3,8 @@
 The offline dinosaur runner from Chrome, rebuilt in Rust with
 [macroquad](https://macroquad.rs) for Omarchy.
 
+![Rusty Rex running past cacti as day turns to night](docs/demo.gif)
+
 ## How to play
 
 - **Space** or **Up** jumps; hold it for a higher jump, tap it for a hop.
