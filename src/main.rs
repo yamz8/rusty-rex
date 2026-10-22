@@ -32,6 +32,18 @@ const IDLE_FRAME_SECONDS: f64 = 1.0 / 30.0;
 /// make fullscreen and its idle service watches.
 const SCREENSAVER_CLASS: &str = "org.omarchy.screensaver";
 
+const HELP: &str = "\
+Rusty Rex: the offline dinosaur runner, in Rust.
+
+Usage: rusty-rex [--screensaver]
+
+  --screensaver  Play by itself, fullscreen and silent, until any key or click
+  -h, --help     Show this help
+  -V, --version  Show the version
+
+Space, Up or a click jumps; hold for a higher jump. Down ducks.
+P pauses, M mutes and Esc quits.";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Play,
@@ -40,19 +52,24 @@ enum Mode {
     Screensaver,
 }
 
-fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Mode, String> {
+#[derive(Debug, PartialEq, Eq)]
+enum Command {
+    Run(Mode),
+    Help,
+    Version,
+}
+
+fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
     let mut mode = Mode::Play;
     for arg in args {
         match arg.as_str() {
             "--screensaver" => mode = Mode::Screensaver,
-            _ => {
-                return Err(format!(
-                    "unknown argument {arg}; usage: rusty-rex [--screensaver]"
-                ));
-            }
+            "-h" | "--help" => return Ok(Command::Help),
+            "-V" | "--version" => return Ok(Command::Version),
+            _ => return Err(format!("unknown argument {arg}; see rusty-rex --help")),
         }
     }
-    Ok(mode)
+    Ok(Command::Run(mode))
 }
 
 fn window_conf(linux_backend: LinuxBackend, mode: Mode) -> Conf {
@@ -184,7 +201,15 @@ fn any_input() -> bool {
 
 fn main() {
     let mode = match parse_args(std::env::args().skip(1)) {
-        Ok(mode) => mode,
+        Ok(Command::Run(mode)) => mode,
+        Ok(Command::Help) => {
+            println!("{HELP}");
+            return;
+        }
+        Ok(Command::Version) => {
+            println!("rusty-rex {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
         Err(e) => {
             eprintln!("rusty-rex: {e}");
             std::process::exit(2);
@@ -291,14 +316,19 @@ mod tests {
         assert_eq!(linux_backend(false, true), Some(LinuxBackend::WaylandOnly));
     }
 
-    fn args(list: &[&str]) -> Result<Mode, String> {
+    fn args(list: &[&str]) -> Result<Command, String> {
         parse_args(list.iter().map(|s| s.to_string()))
     }
 
     #[test]
-    fn parses_the_screensaver_flag() {
-        assert_eq!(args(&[]), Ok(Mode::Play));
-        assert_eq!(args(&["--screensaver"]), Ok(Mode::Screensaver));
+    fn parses_the_command_line() {
+        assert_eq!(args(&[]), Ok(Command::Run(Mode::Play)));
+        assert_eq!(
+            args(&["--screensaver"]),
+            Ok(Command::Run(Mode::Screensaver))
+        );
+        assert_eq!(args(&["--screensaver", "-h"]), Ok(Command::Help));
+        assert_eq!(args(&["--version"]), Ok(Command::Version));
         assert!(args(&["--screen"]).is_err());
     }
 
