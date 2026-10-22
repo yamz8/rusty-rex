@@ -26,7 +26,8 @@ pub const DUCKING_SIZE: (f32, f32) = (59.0, 30.0);
 pub struct Input {
     pub jump: bool,
     pub duck: bool,
-    /// A press since the last physics tick, even if already released.
+    /// Jump went down since the last physics tick, even if it has been
+    /// released again. The rex only takes off on this, never on a held key.
     pub jump_pressed: bool,
 }
 
@@ -48,9 +49,6 @@ pub struct Rex {
     /// Whether the back leg is lifted rather than the front one; flips every
     /// STEP_TIME while on the ground.
     pub back_leg_up: bool,
-    /// Jump was held last update. Take-off needs a fresh press, otherwise
-    /// holding the key would bounce the rex the moment it lands.
-    jump_was_down: bool,
 }
 
 impl Default for Rex {
@@ -67,14 +65,7 @@ impl Rex {
             pose: Pose::Running,
             step_timer: 0.0,
             back_leg_up: true,
-            jump_was_down: false,
         }
-    }
-
-    /// Treats jump as already held, so the press that restarted the game
-    /// doesn't also launch the new rex.
-    pub fn ignore_held_jump(&mut self) {
-        self.jump_was_down = true;
     }
 
     pub fn on_ground(&self) -> bool {
@@ -90,13 +81,10 @@ impl Rex {
     }
 
     pub fn update(&mut self, dt: f32, input: Input) {
-        let jump_pressed = input.jump_pressed || (input.jump && !self.jump_was_down);
-        self.jump_was_down = input.jump;
-
         if self.on_ground() {
             // Jump wins over duck so pressing both doesn't leave the rex stuck
             // crouching when the player clearly wants to clear an obstacle.
-            if jump_pressed {
+            if input.jump_pressed {
                 self.pose = Pose::Jumping;
                 self.velocity = JUMP_VELOCITY;
             } else if input.duck {
@@ -118,7 +106,7 @@ impl Rex {
             };
             self.velocity -= gravity * dt;
             self.height += self.velocity * dt;
-            if self.height <= 0.0 && self.velocity <= 0.0 {
+            if self.height <= 0.0 {
                 // The rex reached the ground partway through this step; the
                 // rest of the step is spent running rather than dropped.
                 let below = (self.height / self.velocity).clamp(0.0, dt);
@@ -152,6 +140,13 @@ mod tests {
     use super::*;
 
     const DT: f32 = 1.0 / 120.0;
+    /// The tick jump goes down on.
+    const PRESS: Input = Input {
+        jump_pressed: true,
+        jump: true,
+        duck: false,
+    };
+    /// Jump held after the press.
     const JUMP: Input = Input {
         jump_pressed: false,
         jump: true,
@@ -212,7 +207,7 @@ mod tests {
     #[test]
     fn jump_rises_then_lands() {
         let mut rex = Rex::new();
-        rex.update(DT, JUMP);
+        rex.update(DT, PRESS);
         assert_eq!(rex.pose, Pose::Jumping);
         assert!(rex.height > 0.0);
 
@@ -230,11 +225,11 @@ mod tests {
     #[test]
     fn tapping_jump_gives_a_short_hop() {
         let mut full = Rex::new();
-        full.update(DT, JUMP);
+        full.update(DT, PRESS);
         let (full_peak, _) = fly(&mut full, JUMP);
 
         let mut tap = Rex::new();
-        tap.update(DT, JUMP);
+        tap.update(DT, PRESS);
         let (tap_peak, _) = fly(&mut tap, NONE);
 
         assert!(
@@ -246,7 +241,7 @@ mod tests {
     #[test]
     fn a_one_frame_tap_still_clears_the_minimum_height() {
         let mut rex = Rex::new();
-        rex.update(DT, JUMP);
+        rex.update(DT, PRESS);
         let (peak, _) = fly(&mut rex, NONE);
         assert!(peak >= MIN_JUMP_HEIGHT, "peak {peak}");
     }
@@ -254,38 +249,37 @@ mod tests {
     #[test]
     fn holding_jump_does_not_bounce_after_landing() {
         let mut rex = Rex::new();
-        rex.update(DT, JUMP);
+        rex.update(DT, PRESS);
         fly(&mut rex, JUMP);
         for _ in 0..60 {
             rex.update(DT, JUMP);
             assert_eq!(rex.pose, Pose::Running);
         }
 
-        rex.update(DT, NONE);
-        rex.update(DT, JUMP);
+        rex.update(DT, PRESS);
         assert_eq!(rex.pose, Pose::Jumping);
     }
 
     #[test]
     fn cannot_jump_again_in_mid_air() {
         let mut rex = Rex::new();
-        rex.update(DT, JUMP);
+        rex.update(DT, PRESS);
         while rex.velocity > 0.0 {
             rex.update(DT, JUMP);
         }
         let before = rex.velocity;
-        rex.update(DT, JUMP);
+        rex.update(DT, PRESS);
         assert!(rex.velocity < before, "jump re-triggered in the air");
     }
 
     #[test]
     fn holding_down_in_the_air_drops_faster() {
         let mut normal = Rex::new();
-        normal.update(DT, JUMP);
+        normal.update(DT, PRESS);
         let (_, normal_time) = fly(&mut normal, JUMP);
 
         let mut fast = Rex::new();
-        fast.update(DT, JUMP);
+        fast.update(DT, PRESS);
         let (_, fast_time) = fly(
             &mut fast,
             Input {
@@ -301,7 +295,7 @@ mod tests {
     #[test]
     fn landing_with_down_held_ducks() {
         let mut rex = Rex::new();
-        rex.update(DT, JUMP);
+        rex.update(DT, PRESS);
         fly(&mut rex, DUCK);
         assert_eq!(rex.pose, Pose::Ducking);
     }
@@ -325,7 +319,6 @@ mod tests {
             pose: Pose::Jumping,
             height: 1.0,
             velocity: -240.0,
-            jump_was_down: true,
             ..Rex::new()
         };
         rex.update(DT, JUMP);
@@ -347,7 +340,7 @@ mod tests {
         rex.update(
             DT,
             Input {
-                jump_pressed: false,
+                jump_pressed: true,
                 jump: true,
                 duck: true,
             },
