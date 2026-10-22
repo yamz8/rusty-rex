@@ -1,6 +1,6 @@
 pkgbase = rusty-rex
 	pkgdesc = The Chrome offline dinosaur game, rebuilt in Rust
-	pkgver = 1.2.0
+	pkgver = 1.3.0
 	pkgrel = 1
 	url = https://github.com/yamz8/rusty-rex
 	arch = x86_64
@@ -13,7 +13,7 @@ pkgbase = rusty-rex
 	depends = libx11
 	depends = libxi
 	depends = mesa
-	source = rusty-rex-1.2.0.tar.gz::https://github.com/yamz8/rusty-rex/archive/v1.2.0.tar.gz
-	sha256sums = 8016b42051fa128c593bbad389e6714b61d909bc84e4d0cfe1d070fd629c17d4
+	source = rusty-rex-1.3.0.tar.gz::https://github.com/yamz8/rusty-rex/archive/v1.3.0.tar.gz
+	sha256sums = fd9a6293c6c0c3c20d68fb6eca3f5be31bfa67dd318797262e5c244b64c38264
 
 pkgname = rusty-rex
