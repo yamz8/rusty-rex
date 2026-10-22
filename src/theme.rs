@@ -5,7 +5,6 @@
 //! `key = "#rrggbb"` lines. Only the few keys the game uses are resolved, with
 //! the same fallbacks Omarchy's own resolver (`omarchy-theme-color`) applies.
 
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -21,45 +20,46 @@ pub fn colors_path(home: Option<OsString>) -> Option<PathBuf> {
 /// Builds a palette from a colors.toml, or None if it lacks a usable
 /// background or foreground.
 pub fn parse(text: &str) -> Option<Palette> {
-    let values = read_pairs(text);
-    let pick = |keys: &[&str]| {
-        keys.iter()
-            .find_map(|k| values.get(*k).and_then(|v| hex(v)))
-    };
-
-    // Older themes use short names or only the ANSI colours.
-    let background = pick(&["background", "bg", "color0"])?;
-    let foreground = pick(&["foreground", "fg", "color7"])?;
-    let accent = pick(&["accent"]).unwrap_or(foreground);
-    Some(Palette {
-        background,
-        foreground,
-        faint: foreground.lerp(background, FAINT_MIX),
-        accent,
-    })
-}
-
-/// Splits `key = value` lines, dropping comments and quotes the way Omarchy's
-/// parser does.
-fn read_pairs(text: &str) -> HashMap<String, String> {
-    let mut pairs = HashMap::new();
+    let mut background = [None; 3];
+    let mut foreground = [None; 3];
+    let mut accent = None;
     for line in text.lines() {
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
         let key = key.trim().trim_matches(['"', '\'']);
-        if key.is_empty() || key.starts_with('#') {
-            continue;
-        }
+        let slot = match key {
+            "background" => &mut background[0],
+            "bg" => &mut background[1],
+            "color0" => &mut background[2],
+            "foreground" => &mut foreground[0],
+            "fg" => &mut foreground[1],
+            "color7" => &mut foreground[2],
+            "accent" => &mut accent,
+            _ => continue,
+        };
+        // Drop comments and quotes the way Omarchy's parser does.
         let value = value.trim();
         let value = match value.chars().next() {
             Some(q @ ('"' | '\'')) => value[1..].split(q).next().unwrap_or(""),
             // An unquoted value ends at an inline comment.
             _ => value.split(" #").next().unwrap_or("").trim(),
         };
-        pairs.insert(key.to_owned(), value.to_owned());
+        // Keep the last value even when it is invalid, so a repeated key can
+        // still fall back to its legacy names.
+        *slot = Some(value);
     }
-    pairs
+
+    // Older themes use short names or only the ANSI colours.
+    let background = background.into_iter().flatten().find_map(hex)?;
+    let foreground = foreground.into_iter().flatten().find_map(hex)?;
+    let accent = accent.and_then(hex).unwrap_or(foreground);
+    Some(Palette {
+        background,
+        foreground,
+        faint: foreground.lerp(background, FAINT_MIX),
+        accent,
+    })
 }
 
 /// Parses `#rrggbb`; anything else (rgb() lists, short forms) is skipped.
@@ -114,6 +114,35 @@ red = "#D35F5F"
     fn canonical_names_win_over_legacy_ones() {
         let p = parse("bg = \"#000000\"\nbackground = \"#222222\"\nfg = \"#ffffff\"").unwrap();
         assert_eq!(p.background, Rgb::from_bytes(0x22, 0x22, 0x22));
+    }
+
+    #[test]
+    fn invalid_names_fall_back_in_priority_order() {
+        let p = parse(
+            "color0 = '#101010'\nbg = '#202020'\nbackground = 'invalid'\n\
+             color7 = '#eeeeee'\nfg = 'invalid'\nforeground = '#12'",
+        )
+        .unwrap();
+        assert_eq!(p.background, Rgb::from_bytes(0x20, 0x20, 0x20));
+        assert_eq!(p.foreground, Rgb::from_bytes(0xee, 0xee, 0xee));
+    }
+
+    #[test]
+    fn the_last_duplicate_wins_even_when_invalid() {
+        let p = parse(
+            "background = '#101010'\nbackground = 'invalid'\nbg = '#202020'\n\
+             foreground = '#dddddd'\nforeground = '#eeeeee'\n\
+             accent = '#ff0000'\naccent = 'invalid'",
+        )
+        .unwrap();
+        assert_eq!(p.background, Rgb::from_bytes(0x20, 0x20, 0x20));
+        assert_eq!(p.foreground, Rgb::from_bytes(0xee, 0xee, 0xee));
+        assert_eq!(p.accent, p.foreground);
+
+        assert_eq!(
+            parse("bg = '#101010'\nbg = 'invalid'\nfg = '#eeeeee'"),
+            None
+        );
     }
 
     #[test]
