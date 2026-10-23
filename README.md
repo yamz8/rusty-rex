@@ -56,10 +56,18 @@ Chrome.
 
 ## Screensaver
 
-`rusty-rex --screensaver` opens fullscreen and lets the rex play by itself:
-it times every jump and duck, silently, without touching your high score.
-Any key or click quits. It draws at 30 FPS to go easy on the battery.
-Omarchy shows it as the screensaver while you're offline.
+`rusty-rex --screensaver` opens fullscreen on the waiting screen, and you
+can play it: Space, Up or a click starts a run, and the keys work as in the
+game. If nobody starts within 10 seconds, the rex plays by itself, timing
+every jump and duck, and a jump takes over from it at any moment. Walk away
+and it goes back to playing itself: 15 seconds after a crash, or 30 seconds
+of a run left paused.
+
+It's silent until you press M. Only runs you started count towards your
+high score, never the ones it plays itself. Esc, or any key the game
+doesn't use, quits; moving the mouse does nothing. It draws at 30 FPS to go
+easy on the battery. Omarchy shows it as the screensaver while you're
+offline.
 
 ## Banner
 

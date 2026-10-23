@@ -177,13 +177,19 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(banner: Option<Sprite>) -> Self {
+    /// `screensaver` says how to start: a person can play it, or leave.
+    pub fn new(banner: Option<Sprite>, screensaver: bool) -> Self {
+        let start = if screensaver {
+            "Space to play   Esc to leave"
+        } else {
+            "Press Space or click to start"
+        };
         Self {
             high_score_bounds: None,
             banner,
             current_score: ScoreText::new(""),
             high_score: ScoreText::new("HI "),
-            start: Label::new("Press Space or click to start", LINE_PX),
+            start: Label::new(start, LINE_PX),
             muted: Label::new("Muted", LINE_PX),
             paused: Label::new("P A U S E D", TITLE_PX),
             resume: Label::new("Press P to carry on", LINE_PX),

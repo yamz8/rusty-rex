@@ -45,6 +45,8 @@ up in the app launcher.
   - `src/session.rs` buffered input, fixed ticks and idle/resume timing.
   - `src/autopilot.rs` plays by itself for `--screensaver`, trying each
     move on copies of the game.
+  - `src/attract.rs` who plays the screensaver: nobody yet, the autopilot
+    or a person, and which runs may set the high score.
   - `src/view.rs` fitting the 960x320 playfield into any window size.
   - `src/palette.rs` colours and the day/night blend.
   - `src/theme.rs` reads the Omarchy theme's `colors.toml`.

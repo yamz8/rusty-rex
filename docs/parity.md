@@ -117,6 +117,6 @@ left out on purpose; *extra* is Rusty Rex's own.
 | Alternate game modes | Themed sprites and collectables, none shipped | — | skipped |
 | Arcade mode | `chrome://dino` scales the game to fill the page | The game always scales to its window (`view.rs`) | same |
 | Right-to-left pages | Mirrors the canvas | — | skipped |
-| Screensaver | — | `--screensaver` plays by itself (`autopilot.rs`) | extra |
+| Screensaver | — | `--screensaver` waits to be played, plays by itself after 10 s, and hands over to a person at a jump; only a person's runs set the high score (`attract.rs`, `autopilot.rs`) | extra |
 | Banner | — | `--banner FILE` draws block or braille art in the sky (`banner.rs`) | extra |
 | Runner | — | `--runner omarchy` runs as the Omarchy logo on legs, playing exactly as the rex (`runner.rs`, `sprites.rs`) | extra |

@@ -102,6 +102,9 @@ pub struct Game {
     pub high_score: u32,
     /// Seconds of high score blinking left after a click on it.
     pub high_score_flash: f32,
+    /// Whether this run may set the high score: in the screensaver, only a
+    /// run a person started does.
+    pub recording: bool,
     /// Seconds of score blinking left after the last milestone.
     pub milestone_flash: f32,
     /// The milestone the score shows while it blinks.
@@ -145,6 +148,7 @@ impl Game {
             obstacles: Vec::new(),
             high_score: 0,
             high_score_flash: 0.0,
+            recording: true,
             milestone_flash: 0.0,
             milestone_score: 0,
             night: 0.0,
@@ -359,7 +363,9 @@ impl Game {
             self.state = State::Over(0.0);
             self.milestone_flash = 0.0;
             self.events.push(Event::Crash);
-            self.high_score = self.high_score.max(self.score());
+            if self.recording {
+                self.high_score = self.high_score.max(self.score());
+            }
         }
     }
 
@@ -379,6 +385,7 @@ impl Game {
             state: State::Running,
             rng,
             high_score: self.high_score,
+            recording: self.recording,
             runner: self.runner,
             nights: self.nights,
             sky_time: self.sky_time,

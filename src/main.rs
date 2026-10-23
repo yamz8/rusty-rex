@@ -1,3 +1,4 @@
+mod attract;
 mod autopilot;
 mod banner;
 mod clock;
@@ -40,7 +41,8 @@ Rusty Rex: the offline dinosaur runner, in Rust.
 
 Usage: rusty-rex [--screensaver] [--banner FILE] [--runner rex|omarchy]
 
-  --screensaver  Play by itself, fullscreen and silent, until any key or click
+  --screensaver  Fullscreen and silent until M: Space plays, and after 10 s
+                 it plays by itself; Esc or any other key leaves
   --banner FILE  Draw the block or braille art (█ ▀ ▄ ▌ ▐ ⣿) in FILE faintly
                  in the sky
   --runner NAME  Who runs: rex (the default) or omarchy, the Omarchy logo
@@ -54,8 +56,9 @@ P pauses, M mutes and Esc quits.";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Play,
-    /// The rex plays itself, silently and without touching the high score,
-    /// until any key or click.
+    /// Fullscreen and silent until M: it waits to be played, plays itself
+    /// when nobody does (see attract.rs), and any key the game doesn't use
+    /// leaves it.
     Screensaver,
 }
 
@@ -163,8 +166,19 @@ struct Keys {
     click_down: bool,
     /// Where the left button last went down this frame, in window pixels.
     clicked: Option<(f32, f32)>,
-    /// Any key or button at all went down, which ends the screensaver.
-    any: bool,
+    /// A game key or the left button went down this frame.
+    touched: bool,
+    /// Any other key or button went down, which ends the screensaver.
+    other: bool,
+}
+
+/// The keys the game uses. In the screensaver they play, and any other key
+/// leaves it, as any key did before it could be played.
+fn is_game_key(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::Space | KeyCode::Up | KeyCode::Down | KeyCode::P | KeyCode::M
+    )
 }
 
 impl Keys {
@@ -177,7 +191,11 @@ impl Keys {
     }
 
     fn key_down(&mut self, key: KeyCode, repeat: bool) {
-        self.any = true;
+        if is_game_key(key) {
+            self.touched = true;
+        } else {
+            self.other = true;
+        }
         // Held keys repeat, but only the first press counts as one.
         if !repeat && !self.is_down(key) {
             self.pressed.push(key);
@@ -205,7 +223,8 @@ impl Keys {
     fn end_frame(&mut self) {
         self.pressed.clear();
         self.clicked = None;
-        self.any = false;
+        self.touched = false;
+        self.other = false;
     }
 
     fn input(&self) -> Input {
@@ -343,6 +362,8 @@ struct Stage {
     sounds: Option<Sounds>,
     /// Muting lasts until the game closes.
     muted: bool,
+    /// Who plays the screensaver.
+    attract: attract::Attract,
     theme: Theme,
     score_path: Option<PathBuf>,
     score_saver: storage::ScoreSaver,
@@ -366,8 +387,8 @@ impl Stage {
             .map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         game.runner = runner;
-        // The autopilot's scores aren't the player's.
-        let score_path = storage::default_high_score_path().filter(|_| !screensaver);
+        // In the screensaver too: only runs a person starts can set it.
+        let score_path = storage::default_high_score_path();
         if let Some(path) = &score_path {
             game.high_score = storage::load(path);
         }
@@ -377,13 +398,16 @@ impl Stage {
         Self {
             mode,
             gfx: gfx::Gfx::new(),
-            renderer: draw::Renderer::new(banner),
+            renderer: draw::Renderer::new(banner, screensaver),
             score_saver: storage::ScoreSaver::new(game.high_score),
             game,
             session: Session::default(),
             keys: Keys::default(),
+            // The screensaver starts silent, and its audio stack only when M
+            // first turns the sound on.
             sounds: (!screensaver).then(Sounds::load),
-            muted: false,
+            muted: screensaver,
+            attract: attract::Attract::default(),
             theme: Theme::new(),
             score_path,
             focus_lost: false,
@@ -397,7 +421,7 @@ impl Stage {
     fn frame(&mut self) {
         let screensaver = self.mode == Mode::Screensaver;
         // The high score is already saved by the frame that set it.
-        if self.keys.was_pressed(KeyCode::Escape) || (screensaver && self.keys.any) {
+        if self.keys.was_pressed(KeyCode::Escape) || (screensaver && self.keys.other) {
             miniquad::window::order_quit();
             return;
         }
@@ -405,21 +429,36 @@ impl Stage {
         let elapsed = (now - self.previous_frame) as f32;
         self.previous_frame = now;
         let game = &mut self.game;
+        // A click on the high score at game over is for resetting it, not
+        // for playing again.
+        if let Some(click) = self.keys.clicked
+            && matches!(game.state, State::Over(_))
+            && self.renderer.on_high_score(view::playfield_point(
+                miniquad::window::screen_size(),
+                click,
+            ))
+        {
+            game.click_high_score();
+            self.keys.take_click();
+        }
         if screensaver {
-            self.session.autoplay(game, elapsed);
-        } else {
-            // A click on the high score at game over is for resetting it,
-            // not for playing again.
-            if let Some(click) = self.keys.clicked
-                && matches!(game.state, State::Over(_))
-                && self.renderer.on_high_score(view::playfield_point(
-                    miniquad::window::screen_size(),
-                    click,
-                ))
-            {
-                game.click_high_score();
-                self.keys.take_click();
+            let input = self.keys.input();
+            match self.attract.step(game, elapsed, input, self.keys.touched) {
+                attract::Drive::Wait => {
+                    self.session.advance(game, elapsed, Input::default(), false)
+                }
+                attract::Drive::Autopilot { unpause } => {
+                    if unpause {
+                        game.toggle_pause();
+                    }
+                    self.session.autoplay(game, elapsed);
+                }
+                attract::Drive::Person => {
+                    let pause = self.keys.was_pressed(KeyCode::P);
+                    self.session.advance(game, elapsed, input, pause);
+                }
             }
+        } else {
             // Like Chrome, stop when the window loses focus and carry on
             // when it comes back.
             let mut pause = self.keys.was_pressed(KeyCode::P);
@@ -446,6 +485,9 @@ impl Stage {
         }
         if self.keys.was_pressed(KeyCode::M) {
             self.muted = !self.muted;
+            if !self.muted && self.sounds.is_none() {
+                self.sounds = Some(Sounds::load());
+            }
         }
         for event in game.events.drain(..) {
             if let Some(sounds) = self.sounds.as_ref().filter(|_| !self.muted) {
@@ -467,7 +509,8 @@ impl Stage {
             miniquad::window::screen_size(),
             game,
             self.theme.palette,
-            self.muted,
+            // The screensaver is silent until M, so it doesn't say so.
+            self.muted && !screensaver,
             now,
         );
         // Nobody plays the screensaver, so half the display's frame rate is
@@ -501,10 +544,12 @@ impl EventHandler for Stage {
     }
 
     fn mouse_button_down_event(&mut self, button: MouseButton, x: f32, y: f32) {
-        self.keys.any = true;
         if button == MouseButton::Left {
+            self.keys.touched = true;
             self.keys.click_down = true;
             self.keys.clicked = Some((x, y));
+        } else {
+            self.keys.other = true;
         }
     }
 
@@ -568,6 +613,31 @@ mod tests {
         assert_eq!(args(&["--screensaver", "-h"]), Ok(Command::Help));
         assert_eq!(args(&["--version"]), Ok(Command::Version));
         assert!(args(&["--screen"]).is_err());
+    }
+
+    #[test]
+    fn game_keys_play_and_others_leave_the_screensaver() {
+        for key in [
+            KeyCode::Space,
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::P,
+            KeyCode::M,
+        ] {
+            let mut keys = Keys::default();
+            keys.key_down(key, false);
+            assert!(keys.touched && !keys.other, "{key:?}");
+        }
+        for key in [
+            KeyCode::Escape,
+            KeyCode::Enter,
+            KeyCode::A,
+            KeyCode::LeftSuper,
+        ] {
+            let mut keys = Keys::default();
+            keys.key_down(key, false);
+            assert!(keys.other && !keys.touched, "{key:?}");
+        }
     }
 
     #[test]
