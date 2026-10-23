@@ -65,8 +65,8 @@ of a run left paused.
 
 It's silent until you press M. Only runs you started count towards your
 high score, never the ones it plays itself. Esc, or any key the game
-doesn't use, quits; moving the mouse does nothing. It draws at 30 FPS to go
-easy on the battery. Omarchy shows it as the screensaver while you're
+doesn't use, quits; moving the mouse does nothing. While nobody plays it, it
+draws at 30 FPS to go easy on the battery. Omarchy shows it as the screensaver while you're
 offline.
 
 ## Banner
