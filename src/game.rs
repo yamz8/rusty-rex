@@ -4,7 +4,7 @@
 //! Like the rex, this never touches the window or GL. Horizontal positions are in
 //! playfield pixels and heights in pixels above the ground.
 
-use crate::obstacle::{self, Hitbox, Kind, Obstacle, Rng};
+use crate::obstacle::{self, Hitbox, Kind, Obstacle, PTERODACTYL_SPEED_OFFSET, Rng};
 use crate::rex::{Input, Pose, Rex};
 use crate::runner::{FRAME_HEIGHT, Runner};
 
@@ -41,8 +41,9 @@ pub const INTRO_WALK: f32 = 50.0 / 1.5 * INTRO_TIME;
 /// Clicking the high score at game over makes it blink this long, seven
 /// times; a second click meanwhile resets it.
 pub const HIGH_SCORE_FLASH: f32 = 7.0 * FLASH_PERIOD;
-/// Chrome's score is the distance in whole pixels times this, rounded.
-const SCORE_PER_PIXEL: f32 = 0.025;
+/// Chrome's score is the distance in whole pixels times 0.025, rounded: one
+/// point for every this many pixels.
+const PIXELS_PER_POINT: u32 = 40;
 /// Every this many points the score blinks, as in Chrome.
 pub const MILESTONE: u32 = 100;
 /// Chrome blinks the score off and on four times, a quarter second each way.
@@ -260,7 +261,7 @@ impl Game {
     }
 
     pub fn score(&self) -> u32 {
-        (self.distance.ceil() * SCORE_PER_PIXEL).round() as u32
+        score_at(self.distance)
     }
 
     /// The score to display: it holds at the milestone while it blinks.
@@ -282,6 +283,24 @@ impl Game {
         self.nights.saturating_sub(1) as usize % MOON_PHASES
     }
 
+    /// Whether nothing can reach the runner in the next `seconds`, whatever
+    /// it does: every obstacle still ahead, and any that spawns, is further
+    /// off than the most the world can close in that time. The autopilot
+    /// stops looking ahead once this holds.
+    pub fn clear_for(&self, seconds: f32) -> bool {
+        let fastest = self.speed + ACCELERATION * seconds + PTERODACTYL_SPEED_OFFSET;
+        // Only the standing width counts: crashed() tests the standing
+        // outline before any pose's boxes, ducking ones included.
+        let width = self.runner.standing().0;
+        // A pixel to spare, so float rounding can never make this wrong.
+        let reach = REX_X + width + fastest * seconds + 1.0;
+        SPAWN_X > reach
+            && self
+                .obstacles
+                .iter()
+                .all(|o| o.right() <= REX_X || o.x > reach)
+    }
+
     /// Whether the runner touches an obstacle, tested as Chrome does: a
     /// rough box first, then each of the runner's boxes against each of the
     /// obstacle's. The rough box is always the standing one, as in Chrome.
@@ -289,15 +308,23 @@ impl Game {
         let (w, _) = self.runner.standing();
         let h = FRAME_HEIGHT;
         let outline = Hitbox::outline(REX_X, self.rex.height, w, h);
+        // Nearly always nothing is close, and the autopilot asks this on
+        // every tick it simulates, so skip placing the boxes then.
+        let mut near = self
+            .obstacles
+            .iter()
+            .filter(|o| o.outline().overlaps(&outline))
+            .peekable();
+        if near.peek().is_none() {
+            return false;
+        }
         let boxes = self.runner.boxes(self.rex.pose);
         let mut rex = [outline; Runner::MAX_BOXES];
         for (placed, &b) in rex.iter_mut().zip(boxes) {
             *placed = Hitbox::place(b, REX_X, self.rex.height, h);
         }
         let rex = &rex[..boxes.len()];
-        self.obstacles
-            .iter()
-            .any(|o| o.outline().overlaps(&outline) && o.hits(rex))
+        near.any(|o| o.hits(rex))
     }
 
     /// Moves the rex, reporting a take-off for the jump sound.
@@ -317,13 +344,14 @@ impl Game {
         self.distance += step;
         self.milestone_flash = (self.milestone_flash - dt).max(0.0);
         // Chrome ignores milestones while one is still blinking.
-        if self.score() / MILESTONE > before / MILESTONE && self.milestone_flash == 0.0 {
+        let after = self.score();
+        if after / MILESTONE > before / MILESTONE && self.milestone_flash == 0.0 {
             self.milestone_flash = MILESTONE_FLASH;
-            self.milestone_score = self.score() / MILESTONE * MILESTONE;
+            self.milestone_score = after / MILESTONE * MILESTONE;
             self.events.push(Event::Milestone);
         }
         self.night_left = (self.night_left - dt).max(0.0);
-        if self.score() / NIGHT_EVERY > before / NIGHT_EVERY {
+        if after / NIGHT_EVERY > before / NIGHT_EVERY {
             self.night_left = NIGHT_LENGTH;
             self.nights += 1;
         }
@@ -395,6 +423,18 @@ impl Game {
         self.jump_was_down = true;
         self.events.push(Event::Restart);
     }
+}
+
+/// Chrome's score for `distance` pixels, worked out in integers. Float ceil
+/// and round are software calls on baseline x86-64, and the autopilot scores
+/// every tick it simulates.
+fn score_at(distance: f32) -> u32 {
+    // Truncating then adding one for any fraction left is the ceiling, as
+    // the distance is never negative.
+    let whole = distance as u32;
+    let pixels = whole + u32::from((whole as f32) < distance);
+    // Half a point rounds up, as Chrome's Math.round does.
+    pixels.saturating_add(PIXELS_PER_POINT / 2) / PIXELS_PER_POINT
 }
 
 /// Whether a blink lasting `total` seconds, with `left` to go, is in the off
@@ -664,6 +704,20 @@ mod tests {
         assert_eq!(game.score(), 1);
         game.distance = 19.0;
         assert_eq!(game.score(), 0);
+    }
+
+    #[test]
+    fn integer_scoring_matches_chromes_float_formula() {
+        // Every whole pixel f32 can hold exactly, about six hours of play at
+        // top speed, and the fractions either side of each, score as the
+        // float formula does.
+        let float = |d: f32| (d.ceil() * 0.025).round() as u32;
+        for n in 0..1u32 << f32::MANTISSA_DIGITS {
+            let d = n as f32;
+            for d in [d, d.next_up(), (d + 0.5), d.next_down().max(0.0)] {
+                assert_eq!(score_at(d), float(d), "at {d}");
+            }
+        }
     }
 
     #[test]

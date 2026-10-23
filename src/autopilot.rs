@@ -110,6 +110,11 @@ fn can_wait(game: &Game, dt: f32, ticks: u32) -> bool {
 /// Chrome's gaps can be shorter than the look-ahead, so once a jump lands
 /// or an obstacle goes by, whichever move gets past the next one follows.
 fn survives(game: &Game, m: Move, dt: f32, ticks: u32) -> bool {
+    // Nothing in reach means no crash, so there is nothing to simulate.
+    // Reach is asked afresh at each landing or pass, and every tick.
+    if game.clear_for(ticks as f32 * dt) {
+        return true;
+    }
     let mut game = game.clone();
     let mut input = m.input_for(&game);
     for tick in 1..=ticks {
@@ -143,7 +148,7 @@ mod tests {
     /// A full jump lasts about this long.
     const FULL_JUMP: f32 = 0.6;
     use crate::clock::TICK;
-    use crate::game::Event;
+    use crate::game::{Event, MAX_SPEED, START_SPEED};
 
     fn autoplay(game: &mut Game, seconds: f32) {
         for _ in 0..(seconds / TICK).round() as u32 {
@@ -212,6 +217,41 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_clear_course_survives_any_input() {
+        // The look-ahead trusts clear_for to skip simulating, so whenever it
+        // holds, no way of playing may crash in that time: not even jumping
+        // or ducking into an obstacle on purpose. Starting some runs at top
+        // speed tries the tightest margin, with pterodactyls flying fast.
+        let mut clear = 0;
+        for runner in [crate::runner::Runner::Rex, crate::runner::Runner::Omarchy] {
+            for (seed, speed) in (1..=4).flat_map(|s| [(s, START_SPEED), (s, MAX_SPEED)]) {
+                let mut game = Game::new(seed);
+                game.runner = runner;
+                game.speed = speed;
+                for tick in 0..(120.0 / TICK) as u32 {
+                    if tick % 4 == 0 && game.state == State::Running && game.clear_for(HORIZON) {
+                        clear += 1;
+                        for m in NEXT {
+                            let mut copy = game.clone();
+                            for _ in 0..(HORIZON / TICK).ceil() as u32 {
+                                copy.update(TICK, m.input_for(&copy));
+                            }
+                            assert_eq!(
+                                copy.state,
+                                State::Running,
+                                "{runner:?} {seed} {speed} {m:?}"
+                            );
+                        }
+                    }
+                    let input = input(&game, TICK);
+                    game.update(TICK, input);
+                }
+            }
+        }
+        assert!(clear > 1000, "only {clear} clear moments tried");
     }
 
     #[test]
