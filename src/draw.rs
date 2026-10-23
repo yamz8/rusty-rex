@@ -8,6 +8,7 @@ use crate::gfx::{Color, Gfx};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
 use crate::rex::{Pose, STANDING_SIZE};
+use crate::runner::Runner;
 use crate::sprites::{self, Legs, Sprite};
 use crate::view;
 
@@ -219,7 +220,10 @@ impl Renderer {
             }
         }
         let blink = game.state == State::Waiting && blinking(now);
-        rex(g, game, blink, &c);
+        match game.runner {
+            Runner::Rex => rex(g, game, blink, &c),
+            Runner::Omarchy => omarchy(g, game, blink, &c),
+        }
         self.score(g, game, &c);
 
         // Before the run, Chrome shows only the rex; the game then opens out
@@ -503,9 +507,89 @@ fn rex(g: &mut Gfx, game: &Game, blink: bool, c: &Colors) {
     );
 }
 
+/// Which of the Omarchy runner's sprites shows its pose, in the order of
+/// the sheet's `omarchy`.
+fn omarchy_pose(game: &Game) -> usize {
+    match (game.state, game.rex.pose) {
+        (State::Over(_), _) => 4,
+        (_, Pose::Ducking) => 3,
+        // both feet stay down mid-air and while waiting, as the rex's do
+        (_, Pose::Jumping) | (State::Waiting, _) => 2,
+        _ if game.rex.back_leg_up => 1,
+        _ => 0,
+    }
+}
+
+/// The Omarchy runner, drawn as the rex is: its sprite stretched over its
+/// box, in the accent. Its eyes are drawn on its hollow face, so a blink
+/// paints them in the background colour.
+fn omarchy(g: &mut Gfx, game: &Game, blink: bool, c: &Colors) {
+    let crashed = matches!(game.state, State::Over(_));
+    // a crash while ducking is drawn standing up, as the rex's is
+    let pose = if crashed {
+        Pose::Running
+    } else {
+        game.rex.pose
+    };
+    let (w, h) = Runner::Omarchy.size(pose);
+    let art = &sprites::sheet().omarchy[omarchy_pose(game)];
+    let eye = if blink { c.bg } else { c.accent };
+    sprite(
+        g,
+        art,
+        game.rex_x(),
+        top(game.rex.height, h),
+        w,
+        h,
+        c.accent,
+        eye,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_omarchy_runner_has_a_sprite_for_every_pose() {
+        let mut game = Game::new(1);
+        game.runner = Runner::Omarchy;
+        let mut seen = vec![];
+        for (state, pose, back) in [
+            (State::Running, Pose::Running, false),
+            (State::Running, Pose::Running, true),
+            (State::Running, Pose::Jumping, true),
+            (State::Running, Pose::Ducking, true),
+            (State::Over(0.5), Pose::Ducking, true),
+        ] {
+            game.state = state;
+            game.rex.pose = pose;
+            game.rex.back_leg_up = back;
+            seen.push(omarchy_pose(&game));
+        }
+        assert_eq!(seen, [0, 1, 2, 3, 4]);
+        // each sprite's grid has the shape of the box it is stretched over
+        let sheet = sprites::sheet();
+        for (i, pose) in [
+            Pose::Running,
+            Pose::Running,
+            Pose::Jumping,
+            Pose::Ducking,
+            Pose::Running,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (w, h) = Runner::Omarchy.size(pose);
+            let art = &sheet.omarchy[i];
+            let cell = crate::runner::OMARCHY_CELL;
+            assert_eq!(
+                (art.cols as f32 * cell, art.rows as f32 * cell),
+                (w, h),
+                "pose {i}"
+            );
+        }
+    }
 
     #[test]
     fn the_waiting_rex_blinks_three_times_then_stops() {

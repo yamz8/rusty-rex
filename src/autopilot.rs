@@ -175,6 +175,18 @@ mod tests {
     }
 
     #[test]
+    fn survives_long_runs_as_the_omarchy_runner() {
+        // The Omarchy runner has its own size and boxes, so the autopilot is
+        // held to the same five minutes with them.
+        for seed in (1..=4).map(|s| s * 7919) {
+            let mut game = Game::new(seed);
+            game.runner = crate::runner::Runner::Omarchy;
+            autoplay(&mut game, 300.0);
+            assert_eq!(game.state, State::Running, "seed {seed} crashed");
+        }
+    }
+
+    #[test]
     fn jumps_again_on_landing_only_when_it_must() {
         // Chrome's gaps can be shorter than a jump, so taking off the tick
         // after landing is sometimes the only way through. When the next

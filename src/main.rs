@@ -8,6 +8,7 @@ mod gfx;
 mod obstacle;
 mod palette;
 mod rex;
+mod runner;
 mod session;
 mod sound;
 mod sprites;
@@ -37,11 +38,13 @@ const SCREENSAVER_CLASS: &str = "org.omarchy.screensaver";
 const HELP: &str = "\
 Rusty Rex: the offline dinosaur runner, in Rust.
 
-Usage: rusty-rex [--screensaver] [--banner FILE]
+Usage: rusty-rex [--screensaver] [--banner FILE] [--runner rex|omarchy]
 
   --screensaver  Play by itself, fullscreen and silent, until any key or click
   --banner FILE  Draw the block or braille art (█ ▀ ▄ ▌ ▐ ⣿) in FILE faintly
                  in the sky
+  --runner NAME  Who runs: rex (the default) or omarchy, the Omarchy logo
+                 on legs
   -h, --help     Show this help
   -V, --version  Show the version
 
@@ -60,6 +63,7 @@ enum Mode {
 struct Options {
     mode: Mode,
     banner: Option<PathBuf>,
+    runner: runner::Runner,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -73,6 +77,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
     let mut options = Options {
         mode: Mode::Play,
         banner: None,
+        runner: runner::Runner::Rex,
     };
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -81,6 +86,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
             "--banner" => {
                 let file = args.next().ok_or("--banner needs a file")?;
                 options.banner = Some(file.into());
+            }
+            "--runner" => {
+                options.runner = match args.next().as_deref() {
+                    Some("rex") => runner::Runner::Rex,
+                    Some("omarchy") => runner::Runner::Omarchy,
+                    _ => return Err("--runner needs rex or omarchy".to_owned()),
+                };
             }
             "-h" | "--help" => return Ok(Command::Help),
             "-V" | "--version" => return Ok(Command::Version),
@@ -314,9 +326,9 @@ fn main() {
         std::process::exit(1);
     };
     let banner = options.banner.as_deref().and_then(load_banner);
-    let mode = options.mode;
+    let (mode, runner) = (options.mode, options.runner);
     miniquad::start(window_conf(backend, mode), move || {
-        Box::new(Stage::new(mode, banner))
+        Box::new(Stage::new(mode, runner, banner))
     });
 }
 
@@ -346,13 +358,14 @@ struct Stage {
 }
 
 impl Stage {
-    fn new(mode: Mode, banner: Option<sprites::Sprite>) -> Self {
+    fn new(mode: Mode, runner: runner::Runner, banner: Option<sprites::Sprite>) -> Self {
         let screensaver = mode == Mode::Screensaver;
         // Any changing seed will do; it only decides the order of obstacles.
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
+        game.runner = runner;
         // The autopilot's scores aren't the player's.
         let score_path = storage::default_high_score_path().filter(|_| !screensaver);
         if let Some(path) = &score_path {
@@ -533,6 +546,7 @@ mod tests {
             Ok(Command::Run(Options {
                 mode,
                 banner: banner.map(PathBuf::from),
+                runner: runner::Runner::Rex,
             }))
         };
         assert_eq!(args(&[]), run(Mode::Play, None));
@@ -542,6 +556,15 @@ mod tests {
             run(Mode::Screensaver, Some("logo.txt"))
         );
         assert!(args(&["--banner"]).is_err());
+        assert_eq!(
+            args(&["--runner", "omarchy"]),
+            Ok(Command::Run(Options {
+                mode: Mode::Play,
+                banner: None,
+                runner: runner::Runner::Omarchy,
+            }))
+        );
+        assert!(args(&["--runner", "cat"]).is_err());
         assert_eq!(args(&["--screensaver", "-h"]), Ok(Command::Help));
         assert_eq!(args(&["--version"]), Ok(Command::Version));
         assert!(args(&["--screen"]).is_err());

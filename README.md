@@ -71,6 +71,13 @@ they fill. So a logo drawn for a terminal, or made with
 `omarchy transcode ascii` or `omarchy ascii`, shows up crisp at any size.
 Other characters are left blank.
 
+## Runner
+
+`rusty-rex --runner omarchy` runs as the Omarchy runner instead of the rex:
+the Omarchy logo's square with two eyes, on legs, in Omi's shapes. It plays
+just as the rex does, with boxes traced from its own shape, and works with
+`--screensaver`.
+
 ## Build from source
 
 Rust comes from `omarchy install dev-env rust`.

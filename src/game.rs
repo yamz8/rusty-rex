@@ -4,8 +4,9 @@
 //! Like the rex, this never touches the window or GL. Horizontal positions are in
 //! playfield pixels and heights in pixels above the ground.
 
-use crate::obstacle::{self, Hitbox, Kind, Obstacle, Rng, SpriteBox};
-use crate::rex::{Input, Pose, Rex, STANDING_SIZE};
+use crate::obstacle::{self, Hitbox, Kind, Obstacle, Rng};
+use crate::rex::{Input, Pose, Rex};
+use crate::runner::{FRAME_HEIGHT, Runner};
 
 /// Where the rex stands; the world scrolls past it instead of it moving.
 pub const REX_X: f32 = 60.0;
@@ -60,17 +61,6 @@ const NIGHT_EASE: [f32; 4] = [0.65, 0.05, 0.36, 1.0];
 pub const CLOUD_SPEED: f32 = 60.0;
 /// Chrome's moon goes through this many phases, one each night.
 pub const MOON_PHASES: usize = 7;
-/// Chrome's collision boxes for the rex, standing and ducking. Both are in
-/// the standing sprite's 47 px frame, with the duck at its bottom.
-const REX_RUNNING_BOXES: [SpriteBox; 6] = [
-    (22.0, 0.0, 17.0, 16.0),
-    (1.0, 18.0, 30.0, 9.0),
-    (10.0, 35.0, 14.0, 8.0),
-    (1.0, 24.0, 29.0, 5.0),
-    (5.0, 30.0, 21.0, 4.0),
-    (9.0, 34.0, 15.0, 4.0),
-];
-const REX_DUCKING_BOXES: [SpriteBox; 1] = [(1.0, 18.0, 55.0, 25.0)];
 
 /// Things that happened during an update, for the sound effects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +90,8 @@ pub enum State {
 #[derive(Clone, Debug)]
 pub struct Game {
     pub state: State,
+    /// Who runs; the physics are the same, the size and boxes not.
+    pub runner: Runner,
     pub rex: Rex,
     /// Scroll speed in pixels per second.
     pub speed: f32,
@@ -146,6 +138,7 @@ impl Game {
     pub fn new(seed: u64) -> Self {
         Self {
             state: State::Waiting,
+            runner: Runner::Rex,
             rex: Rex::new(),
             speed: START_SPEED,
             distance: 0.0,
@@ -285,18 +278,15 @@ impl Game {
         self.nights.saturating_sub(1) as usize % MOON_PHASES
     }
 
-    /// Whether the rex touches an obstacle, tested as Chrome does: a rough
-    /// box first, then each of the rex's boxes against each of the
-    /// obstacle's. The rough box is always the standing rex's, as in Chrome.
+    /// Whether the runner touches an obstacle, tested as Chrome does: a
+    /// rough box first, then each of the runner's boxes against each of the
+    /// obstacle's. The rough box is always the standing one, as in Chrome.
     fn crashed(&self) -> bool {
-        let (w, h) = STANDING_SIZE;
+        let (w, _) = self.runner.standing();
+        let h = FRAME_HEIGHT;
         let outline = Hitbox::outline(REX_X, self.rex.height, w, h);
-        let boxes: &[SpriteBox] = if self.rex.pose == Pose::Ducking {
-            &REX_DUCKING_BOXES
-        } else {
-            &REX_RUNNING_BOXES
-        };
-        let mut rex = [outline; REX_RUNNING_BOXES.len()];
+        let boxes = self.runner.boxes(self.rex.pose);
+        let mut rex = [outline; Runner::MAX_BOXES];
         for (placed, &b) in rex.iter_mut().zip(boxes) {
             *placed = Hitbox::place(b, REX_X, self.rex.height, h);
         }
@@ -389,6 +379,7 @@ impl Game {
             state: State::Running,
             rng,
             high_score: self.high_score,
+            runner: self.runner,
             nights: self.nights,
             sky_time: self.sky_time,
             clouds: self.clouds,

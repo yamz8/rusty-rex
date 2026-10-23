@@ -242,6 +242,107 @@ pub const RESTART: Grid = &[
     "......#####.......",
 ];
 
+/// The Omarchy runner, in Omi's shapes: the Omarchy logo's hollow square
+/// with two eyes, over three rows of legs, Omi's 300 over 60. Its eyes are
+/// `o`, drawn in their own colour so they can blink. Its two run frames swap
+/// which leg reaches forward; it jumps with both feet down, ducks with the
+/// logo's middle rows folded away, and crashes wide-eyed, as the rex does.
+pub const OMARCHY_RUN_A: Grid = &[
+    "###############",
+    "#......#......#",
+    "#.######...##.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#...o...o.#.#",
+    "#.#...o...o.#.#",
+    "###.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.###########.#",
+    "#......#......#",
+    "########.######",
+    "...#......#....",
+    "...#.....##....",
+    "...##..........",
+];
+
+pub const OMARCHY_RUN_B: Grid = &[
+    "###############",
+    "#......#......#",
+    "#.######...##.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#...o...o.#.#",
+    "#.#...o...o.#.#",
+    "###.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.###########.#",
+    "#......#......#",
+    "########.######",
+    "...#......#....",
+    "..##......#....",
+    "..........##...",
+];
+
+pub const OMARCHY_JUMP: Grid = &[
+    "###############",
+    "#......#......#",
+    "#.######...##.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#...o...o.#.#",
+    "#.#...o...o.#.#",
+    "###.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.###########.#",
+    "#......#......#",
+    "########.######",
+    "...#......#....",
+    "...#......#....",
+    "...##.....##...",
+];
+
+pub const OMARCHY_DUCK: Grid = &[
+    "###############",
+    "#......#......#",
+    "#.######...##.#",
+    "#.#...o...o.#.#",
+    "#.#.........#.#",
+    "#.###########.#",
+    "#......#......#",
+    "########.######",
+    "...##....##....",
+];
+
+pub const OMARCHY_CRASH: Grid = &[
+    "###############",
+    "#......#......#",
+    "#.######...##.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#..oo..oo.#.#",
+    "#.#..oo..oo.#.#",
+    "###.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.#.........#.#",
+    "#.###########.#",
+    "#......#......#",
+    "########.######",
+    "...#......#....",
+    "...#......#....",
+    "...##.....##...",
+];
+
 /// Which way the rex's legs are drawn this frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Legs {
@@ -350,6 +451,8 @@ pub struct Sheet {
     pub pterodactyl_wings_down: Sprite,
     pub cloud: Sprite,
     pub restart: Sprite,
+    /// Indexed by OmarchyPose.
+    pub omarchy: [Sprite; 5],
     pub star: Sprite,
 }
 
@@ -379,6 +482,14 @@ impl Sheet {
             pterodactyl_wings_down: Sprite::new(PTERODACTYL_WINGS_DOWN),
             cloud: Sprite::new(CLOUD),
             restart: Sprite::new(RESTART),
+            omarchy: [
+                OMARCHY_RUN_A,
+                OMARCHY_RUN_B,
+                OMARCHY_JUMP,
+                OMARCHY_DUCK,
+                OMARCHY_CRASH,
+            ]
+            .map(Sprite::new),
             star: Sprite::new(STAR),
         }
     }
