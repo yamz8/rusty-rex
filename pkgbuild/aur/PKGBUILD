@@ -4,7 +4,7 @@
 # up builds the local checkout instead, for bin/install.
 
 pkgname=rusty-rex
-pkgver=1.5.1
+pkgver=1.6.0
 pkgrel=1
 pkgdesc='The Chrome offline dinosaur game, rebuilt in Rust'
 arch=('x86_64' 'aarch64')
@@ -13,7 +13,7 @@ license=('MIT')
 depends=('alsa-lib' 'gcc-libs' 'glibc' 'libx11' 'libxi' 'mesa')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
-sha256sums=('b591ff00c84aa60f661229106d130ebbc29f71511a0f0090d865767e3b7501d5')
+sha256sums=('9e83761c71780701abe11bada091e37b2620bbd5687353bef2465fa0cccce85a')
 
 prepare() {
   cd "$pkgname-$pkgver"
