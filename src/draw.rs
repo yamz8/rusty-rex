@@ -50,10 +50,19 @@ const HIGH_SCORE_PADDING: f32 = 4.0;
 /// Each slot this wide may hold one cloud.
 const CLOUD_SLOT: f32 = 260.0;
 const CLOUD_SIZE: (f32, f32) = (46.0, 14.0);
-/// The banner's top edge, and the most of the sky it may cover, so it stays
-/// clear of the score row's right end and the start prompt below.
-const BANNER_TOP: f32 = 16.0;
-const BANNER_MAX: (f32, f32) = (0.6 * view::PLAYFIELD_WIDTH, 100.0);
+/// The banner's top edge, and the most of the sky it may cover: a band at
+/// the top, clear of the score row's right end, with the clouds, moon and
+/// stars kept below it.
+const BANNER_TOP: f32 = 12.0;
+const BANNER_MAX: (f32, f32) = (0.6 * view::PLAYFIELD_WIDTH, 76.0);
+/// Room left between the banner and what drifts below it.
+const BANNER_GAP: f32 = 8.0;
+/// Where the clouds, moon and stars sit without a banner: clouds from 70 to
+/// 150, the moon at 70, stars from 20 to 120.
+const CLOUD_BAND: (f32, f32) = (70.0, 150.0);
+const STAR_BAND: (f32, f32) = (20.0, 120.0);
+const MOON_Y: f32 = 70.0;
+const MOON_RADIUS: f32 = 16.0;
 /// The banner is backdrop, so it is drawn well under the faint colour.
 const BANNER_ALPHA: f32 = 0.35;
 
@@ -205,14 +214,18 @@ impl Renderer {
         let shown = view::shown(area);
         g.begin(c.bg, area);
 
+        // Nothing that drifts goes above this: the bottom of the banner.
+        let floor = self.banner.as_ref().map_or(0.0, |art| {
+            BANNER_TOP + banner_size(art.cols, art.rows).1 + BANNER_GAP
+        });
         if game.night > 0.0 {
-            sky(g, shown, game, &c);
+            sky(g, shown, game, floor, &c);
         }
         let reveal = game.reveal();
         if let Some(art) = self.banner.as_ref().filter(|_| reveal >= 1.0) {
             banner(g, art, shown, &c);
         }
-        clouds(g, shown, game.clouds, &c);
+        clouds(g, shown, game.clouds, floor, &c);
         ground(g, shown, game.distance, &c);
         for o in &game.obstacles {
             if shown.intersects_x(o.x, o.size().0) {
@@ -302,10 +315,10 @@ impl Renderer {
     }
 }
 
-/// The moon and stars fade in with the night, as in Chrome.
-/// The moon and stars drift left while it is night, wrapping round, and
-/// the stars move to new places each night, as in Chrome.
-fn sky(g: &mut Gfx, shown: view::Rect, game: &Game, c: &Colors) {
+/// The moon and stars fade in with the night and drift left while it lasts,
+/// wrapping round, and the stars move to new places each night, as in
+/// Chrome. They stay below `floor`.
+fn sky(g: &mut Gfx, shown: view::Rect, game: &Game, floor: f32, c: &Colors) {
     let fade = |col: Color| Color::new(col.r, col.g, col.b, game.night);
     // Wraps a drifting x so it re-enters from the right of the shown area.
     let drift = |start: f32, speed: f32, w: f32| {
@@ -317,11 +330,14 @@ fn sky(g: &mut Gfx, shown: view::Rect, game: &Game, c: &Colors) {
         let h = hash(i64::from(game.moon_phase() as u32) * STAR_COUNT + i + 1000);
         let start = (h % 1000) as f32 / 1000.0 * shown.w;
         let x = drift(start, STAR_SPEED, 9.0);
-        let y = 20.0 + ((h >> 10) % 100) as f32;
+        let y = in_band(STAR_BAND, floor, h >> 10);
         sprite(g, star, x, y, 9.0, 9.0, fade(c.faint), fade(c.faint));
     }
-    let r = 16.0;
-    let (moon_x, moon_y) = (drift(shown.w * 0.75, MOON_SPEED, 2.0 * r) + r, 70.0);
+    let r = MOON_RADIUS;
+    let (moon_x, moon_y) = (
+        drift(shown.w * 0.75, MOON_SPEED, 2.0 * r) + r,
+        moon_y(floor),
+    );
     g.circle(moon_x, moon_y, r, fade(c.fg));
     // Covering part of the full moon with the sky colour leaves the phase.
     if let Some(dx) = MOON_SHADOWS[game.moon_phase()] {
@@ -365,7 +381,20 @@ fn blinking(t: f64) -> bool {
     false
 }
 
-fn clouds(g: &mut Gfx, area: view::Rect, scrolled: f32, c: &Colors) {
+/// A height in `band` picked by `hash`, moved down below `floor` if the band
+/// starts above it; the band keeps its bottom, so it only gets narrower.
+fn in_band((top, bottom): (f32, f32), floor: f32, hash: u32) -> f32 {
+    let top = top.max(floor);
+    let span = (bottom - top).max(1.0) as u32;
+    top + (hash % span) as f32
+}
+
+/// The moon's centre: its usual height, or just under the floor.
+fn moon_y(floor: f32) -> f32 {
+    MOON_Y.max(floor + MOON_RADIUS)
+}
+
+fn clouds(g: &mut Gfx, area: view::Rect, scrolled: f32, floor: f32, c: &Colors) {
     let first = ((area.x + scrolled) / CLOUD_SLOT).floor() as i64 - 1;
     let last = ((area.x + area.w + scrolled) / CLOUD_SLOT).ceil() as i64;
     for slot in first..=last {
@@ -376,7 +405,7 @@ fn clouds(g: &mut Gfx, area: view::Rect, scrolled: f32, c: &Colors) {
         }
         let x =
             slot as f32 * CLOUD_SLOT - scrolled + (seed >> 4) as f32 % (CLOUD_SLOT - CLOUD_SIZE.0);
-        let y = 70.0 + ((seed >> 12) % 80) as f32;
+        let y = in_band(CLOUD_BAND, floor, seed >> 12);
         let (w, h) = CLOUD_SIZE;
         if area.intersects_x(x, w) {
             sprite(g, &sprites::sheet().cloud, x, y, w, h, c.faint, c.bg);
@@ -613,15 +642,31 @@ mod tests {
 
     #[test]
     fn banners_use_half_pixel_steps_and_shrink_only_when_too_big() {
-        // Omarchy's logo trims to 160x38: height limits it to 2.5 px
-        // pixels, the same 400x95 as when each half block was one pixel.
-        assert_eq!(banner_size(160, 38), (400.0, 95.0));
+        // Omarchy's logo trims to 160x38: height limits it to 2 px pixels.
+        assert_eq!(banner_size(160, 38), (320.0, 76.0));
         // Tiny art still stops at the height limit.
-        assert_eq!(banner_size(4, 2), (200.0, 100.0));
+        assert_eq!(banner_size(4, 2), (152.0, 76.0));
         // Art wider than the space gets pixels under one screen pixel.
         let (w, h) = banner_size(1000, 10);
         assert_eq!(w, BANNER_MAX.0);
         assert!(h < 10.0);
+    }
+
+    #[test]
+    fn clouds_moon_and_stars_stay_below_the_banner() {
+        // Without a banner, they sit where they always have.
+        assert_eq!(in_band(CLOUD_BAND, 0.0, 0), 70.0);
+        assert_eq!(in_band(CLOUD_BAND, 0.0, 79), 149.0);
+        assert_eq!(in_band(STAR_BAND, 0.0, 99), 119.0);
+        assert_eq!(moon_y(0.0), MOON_Y);
+        // With the tallest banner, everything starts below its bottom.
+        let floor = BANNER_TOP + BANNER_MAX.1 + BANNER_GAP;
+        for hash in 0..1000 {
+            let cloud = in_band(CLOUD_BAND, floor, hash);
+            assert!(cloud >= floor && cloud < CLOUD_BAND.1, "{cloud}");
+            assert!(in_band(STAR_BAND, floor, hash) >= floor);
+        }
+        assert!(moon_y(floor) - MOON_RADIUS >= floor);
     }
 
     #[test]
