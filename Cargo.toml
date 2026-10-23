@@ -12,6 +12,9 @@ license = "MIT"
 miniquad = { version = "0.4.11", features = ["log-impl"] }
 # Started only for a game with sound, never for the silent screensaver.
 quad-snd = "0.2.8"
+# dlopen and dlsym, to find glReleaseShaderCompiler in the GL library
+# miniquad already loaded. Miniquad depends on it anyway.
+libc = "0.2.191"
 
 [profile.release]
 lto = true

@@ -86,6 +86,11 @@ impl Gfx {
                 },
             )
             .expect("the built-in shader compiles");
+        // This is the only shader, so the compiler can go: Mesa otherwise
+        // keeps its GLSL built-in function library, about 6 MB, for as long
+        // as the context lives.
+        #[cfg(all(target_os = "linux", target_env = "gnu"))]
+        release_shader_compiler();
         let pipeline = ctx.new_pipeline(
             &[BufferLayout::default()],
             &[
@@ -196,6 +201,48 @@ impl Gfx {
         self.ctx.draw(0, self.indices.len() as i32, 1);
         self.vertices.clear();
         self.indices.clear();
+    }
+}
+
+/// Calls glReleaseShaderCompiler, which miniquad doesn't bind. GLX's libGL
+/// exports it and EGL hands it out by name; only a library miniquad already
+/// loaded is asked, so this never brings in a second GL stack. Without
+/// either, the compiler simply stays. Only glibc has malloc_trim.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn release_shader_compiler() {
+    type GetProcAddress = unsafe extern "C" fn(*const libc::c_char) -> *mut libc::c_void;
+    let loaded = |library: &std::ffi::CStr, symbol: &std::ffi::CStr| unsafe {
+        let handle = libc::dlopen(library.as_ptr(), libc::RTLD_LAZY | libc::RTLD_NOLOAD);
+        if handle.is_null() {
+            return std::ptr::null_mut();
+        }
+        let found = libc::dlsym(handle, symbol.as_ptr());
+        // Only drops the reference just taken; miniquad's keeps it loaded.
+        libc::dlclose(handle);
+        found
+    };
+    let gl = |name: &std::ffi::CStr| -> Option<unsafe extern "C" fn()> {
+        let mut found = loaded(c"libGL.so.1", name);
+        if found.is_null() {
+            let get = loaded(c"libEGL.so.1", c"eglGetProcAddress");
+            if !get.is_null() {
+                let get: GetProcAddress = unsafe { std::mem::transmute(get) };
+                found = unsafe { get(name.as_ptr()) };
+            }
+        }
+        (!found.is_null()).then(|| unsafe { std::mem::transmute(found) })
+    };
+    let (Some(release), Some(finish)) = (gl(c"glReleaseShaderCompiler"), gl(c"glFinish")) else {
+        return;
+    };
+    unsafe {
+        release();
+        // With Mesa's GL thread on, the release is only queued; finishing
+        // waits until the library is really freed.
+        finish();
+        // The library's pages sit amid the heap, where malloc keeps freed
+        // memory resident until it is asked to hand it back.
+        libc::malloc_trim(0);
     }
 }
 

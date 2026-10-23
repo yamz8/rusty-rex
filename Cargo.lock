@@ -141,6 +141,7 @@ dependencies = [
 name = "rusty-rex"
 version = "1.7.0"
 dependencies = [
+ "libc",
  "miniquad",
  "quad-snd",
 ]
