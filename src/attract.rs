@@ -109,6 +109,7 @@ mod tests {
     use crate::autopilot;
     use crate::clock::TICK;
     use crate::game::RESTART_DELAY;
+    use crate::session::Session;
 
     const JUMP: Input = Input {
         jump_pressed: true,
@@ -117,143 +118,149 @@ mod tests {
         restart: false,
     };
 
-    /// Steps `seconds` of frames, playing as `step` says, with the person
-    /// pressing nothing.
-    fn idle(attract: &mut Attract, game: &mut Game, seconds: f32) {
-        for _ in 0..(seconds / TICK).round() as u32 {
-            play(attract, game, Input::default(), false);
+    /// The screensaver as the game runs it: the attract rules, then the
+    /// session, a tick a frame.
+    struct Rig {
+        attract: Attract,
+        session: Session,
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            Self {
+                attract: Attract::default(),
+                session: Session::default(),
+            }
         }
     }
 
-    fn play(attract: &mut Attract, game: &mut Game, input: Input, touched: bool) {
-        match attract.step(game, TICK, input, touched) {
-            Drive::Wait => {}
-            Drive::Autopilot { unpause } => {
-                if unpause {
-                    game.toggle_pause();
-                }
-                let input = autopilot::input(game, TICK);
-                game.update(TICK, input);
-            }
-            Drive::Person => game.update(TICK, input),
+    /// Steps `seconds` of frames with the person pressing nothing.
+    fn idle(rig: &mut Rig, game: &mut Game, seconds: f32) {
+        for _ in 0..(seconds / TICK).round() as u32 {
+            play(rig, game, Input::default(), false);
         }
+    }
+
+    fn play(rig: &mut Rig, game: &mut Game, input: Input, touched: bool) {
+        let drive = rig.attract.step(game, TICK, input, touched);
+        rig.session.screensaver(game, TICK, drive, input, false);
     }
 
     #[test]
     fn it_waits_for_a_person_then_the_autopilot_plays() {
-        let (mut attract, mut game) = (Attract::default(), Game::new(1));
-        idle(&mut attract, &mut game, ATTRACT_DELAY - 1.0);
-        assert_eq!(attract.pilot, Pilot::Waiting);
+        let (mut rig, mut game) = (Rig::new(), Game::new(1));
+        idle(&mut rig, &mut game, ATTRACT_DELAY - 1.0);
+        assert_eq!(rig.attract.pilot, Pilot::Waiting);
         assert_eq!(game.state, State::Waiting);
-        idle(&mut attract, &mut game, 2.0);
-        assert_eq!(attract.pilot, Pilot::Autopilot);
+        idle(&mut rig, &mut game, 2.0);
+        assert_eq!(rig.attract.pilot, Pilot::Autopilot);
         assert_ne!(game.state, State::Waiting);
     }
 
     #[test]
     fn a_jump_on_the_waiting_screen_starts_a_persons_run() {
-        let (mut attract, mut game) = (Attract::default(), Game::new(1));
-        idle(&mut attract, &mut game, 3.0);
-        play(&mut attract, &mut game, JUMP, true);
-        assert_eq!(attract.pilot, Pilot::Person);
+        let (mut rig, mut game) = (Rig::new(), Game::new(1));
+        idle(&mut rig, &mut game, 3.0);
+        play(&mut rig, &mut game, JUMP, true);
+        assert_eq!(rig.attract.pilot, Pilot::Person);
         assert!(matches!(game.state, State::Intro(_)));
         assert!(game.recording);
     }
 
     #[test]
     fn a_jump_takes_over_from_the_autopilot_but_the_run_stays_its() {
-        let (mut attract, mut game) = (Attract::default(), Game::new(1));
-        idle(&mut attract, &mut game, ATTRACT_DELAY + 5.0);
+        let (mut rig, mut game) = (Rig::new(), Game::new(1));
+        idle(&mut rig, &mut game, ATTRACT_DELAY + 5.0);
         assert_eq!(game.state, State::Running);
-        play(&mut attract, &mut game, JUMP, true);
-        assert_eq!(attract.pilot, Pilot::Person);
+        play(&mut rig, &mut game, JUMP, true);
+        assert_eq!(rig.attract.pilot, Pilot::Person);
         // the person plays from here, but the autopilot carried the run
         assert!(!game.recording);
     }
 
     #[test]
     fn down_alone_does_not_take_over() {
-        let (mut attract, mut game) = (Attract::default(), Game::new(1));
-        idle(&mut attract, &mut game, ATTRACT_DELAY + 1.0);
+        let (mut rig, mut game) = (Rig::new(), Game::new(1));
+        idle(&mut rig, &mut game, ATTRACT_DELAY + 1.0);
         let duck = Input {
             duck: true,
             ..Input::default()
         };
-        play(&mut attract, &mut game, duck, true);
-        assert_eq!(attract.pilot, Pilot::Autopilot);
+        play(&mut rig, &mut game, duck, true);
+        assert_eq!(rig.attract.pilot, Pilot::Autopilot);
     }
 
     #[test]
     fn only_runs_a_person_started_set_the_high_score() {
-        let (mut attract, mut game) = (Attract::default(), Game::new(1));
+        let (mut rig, mut game) = (Rig::new(), Game::new(1));
         // The autopilot plays a long run and never crashes; force a crash by
         // putting a cactus on the rex, and the high score stays as it was.
-        idle(&mut attract, &mut game, ATTRACT_DELAY + 30.0);
+        idle(&mut rig, &mut game, ATTRACT_DELAY + 30.0);
         let score = game.score();
         assert!(score > 100);
-        crash(&mut attract, &mut game, Input::default(), false);
+        crash(&mut rig, &mut game, Input::default(), false);
         assert_eq!(game.high_score, 0, "an autopilot run set the high score");
 
         // A person takes over at the game-over screen and starts a run of
         // their own: its crash counts.
-        idle(&mut attract, &mut game, 0.5);
+        idle(&mut rig, &mut game, 0.5);
         for _ in 0..(RESTART_DELAY / TICK) as u32 + 2 {
-            play(&mut attract, &mut game, Input::default(), true);
+            play(&mut rig, &mut game, Input::default(), true);
         }
-        play(&mut attract, &mut game, JUMP, true);
-        assert_eq!(attract.pilot, Pilot::Person);
+        play(&mut rig, &mut game, JUMP, true);
+        assert_eq!(rig.attract.pilot, Pilot::Person);
         assert_eq!(game.state, State::Running);
         for _ in 0..(20.0 / TICK) as u32 {
-            play(&mut attract, &mut game, Input::default(), true);
+            play(&mut rig, &mut game, Input::default(), true);
             if game.state != State::Running {
                 break;
             }
         }
         if game.state == State::Running {
-            crash(&mut attract, &mut game, Input::default(), true);
+            crash(&mut rig, &mut game, Input::default(), true);
         }
         assert!(game.high_score > 0, "a person's run didn't count");
     }
 
     /// Puts a large cactus on the runner, so the next tick crashes.
-    fn crash(attract: &mut Attract, game: &mut Game, input: Input, touched: bool) {
+    fn crash(rig: &mut Rig, game: &mut Game, input: Input, touched: bool) {
         use crate::game::REX_X;
         use crate::obstacle::{Kind, Obstacle};
         game.rex = crate::rex::Rex::new();
         game.obstacles = vec![Obstacle::new(Kind::LargeCactus(1), REX_X, 0.0)];
-        play(attract, game, input, touched);
+        play(rig, game, input, touched);
         assert!(matches!(game.state, State::Over(_)));
     }
 
     #[test]
     fn a_person_who_walks_away_hands_back_to_the_autopilot() {
-        let (mut attract, mut game) = (Attract::default(), Game::new(1));
-        play(&mut attract, &mut game, JUMP, true);
+        let (mut rig, mut game) = (Rig::new(), Game::new(1));
+        play(&mut rig, &mut game, JUMP, true);
         // past the intro, where nothing can be hit yet
-        idle(&mut attract, &mut game, 1.5);
-        crash(&mut attract, &mut game, Input::default(), true);
-        idle(&mut attract, &mut game, IDLE_AFTER_CRASH - 1.0);
-        assert_eq!(attract.pilot, Pilot::Person);
+        idle(&mut rig, &mut game, 1.5);
+        crash(&mut rig, &mut game, Input::default(), true);
+        idle(&mut rig, &mut game, IDLE_AFTER_CRASH - 1.0);
+        assert_eq!(rig.attract.pilot, Pilot::Person);
         assert!(matches!(game.state, State::Over(_)));
-        idle(&mut attract, &mut game, 2.0);
-        assert_eq!(attract.pilot, Pilot::Autopilot);
+        idle(&mut rig, &mut game, 2.0);
+        assert_eq!(rig.attract.pilot, Pilot::Autopilot);
         // the autopilot plays again, and its run doesn't record
-        idle(&mut attract, &mut game, autopilot::RESTART_PAUSE);
+        idle(&mut rig, &mut game, autopilot::RESTART_PAUSE);
         assert_eq!(game.state, State::Running);
         assert!(!game.recording);
     }
 
     #[test]
     fn a_run_left_paused_goes_back_to_the_autopilot() {
-        let (mut attract, mut game) = (Attract::default(), Game::new(1));
-        play(&mut attract, &mut game, JUMP, true);
-        idle(&mut attract, &mut game, 1.0);
+        let (mut rig, mut game) = (Rig::new(), Game::new(1));
+        play(&mut rig, &mut game, JUMP, true);
+        idle(&mut rig, &mut game, 1.0);
         game.state = State::Running;
         game.toggle_pause();
-        idle(&mut attract, &mut game, IDLE_IN_RUN - 1.0);
+        idle(&mut rig, &mut game, IDLE_IN_RUN - 1.0);
         assert_eq!(game.state, State::Paused);
-        idle(&mut attract, &mut game, 2.0);
-        assert_eq!(attract.pilot, Pilot::Autopilot);
+        idle(&mut rig, &mut game, 2.0);
+        assert_eq!(rig.attract.pilot, Pilot::Autopilot);
         assert_eq!(game.state, State::Running);
     }
 }

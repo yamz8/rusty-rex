@@ -177,7 +177,13 @@ struct Keys {
 fn is_game_key(key: KeyCode) -> bool {
     matches!(
         key,
-        KeyCode::Space | KeyCode::Up | KeyCode::Down | KeyCode::P | KeyCode::M
+        KeyCode::Space
+            | KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::P
+            | KeyCode::M
+            | KeyCode::Enter
+            | KeyCode::KpEnter
     )
 }
 
@@ -430,8 +436,11 @@ impl Stage {
         self.previous_frame = now;
         let game = &mut self.game;
         // A click on the high score at game over is for resetting it, not
-        // for playing again.
+        // for playing again; in the screensaver only once a person plays,
+        // so clicks on the autopilot's game over can't wipe the record.
+        let persons = !screensaver || self.attract.pilot == attract::Pilot::Person;
         if let Some(click) = self.keys.clicked
+            && persons
             && matches!(game.state, State::Over(_))
             && self.renderer.on_high_score(view::playfield_point(
                 miniquad::window::screen_size(),
@@ -443,21 +452,9 @@ impl Stage {
         }
         if screensaver {
             let input = self.keys.input();
-            match self.attract.step(game, elapsed, input, self.keys.touched) {
-                attract::Drive::Wait => {
-                    self.session.advance(game, elapsed, Input::default(), false)
-                }
-                attract::Drive::Autopilot { unpause } => {
-                    if unpause {
-                        game.toggle_pause();
-                    }
-                    self.session.autoplay(game, elapsed);
-                }
-                attract::Drive::Person => {
-                    let pause = self.keys.was_pressed(KeyCode::P);
-                    self.session.advance(game, elapsed, input, pause);
-                }
-            }
+            let drive = self.attract.step(game, elapsed, input, self.keys.touched);
+            let pause = self.keys.was_pressed(KeyCode::P);
+            self.session.screensaver(game, elapsed, drive, input, pause);
         } else {
             // Like Chrome, stop when the window loses focus and carry on
             // when it comes back.
@@ -509,13 +506,15 @@ impl Stage {
             miniquad::window::screen_size(),
             game,
             self.theme.palette,
-            // The screensaver is silent until M, so it doesn't say so.
-            self.muted && !screensaver,
+            // The screensaver starts silent and doesn't say so; once sound
+            // has been on, muting it again shows, as in the game.
+            self.muted && self.sounds.is_some(),
             now,
         );
-        // Nobody plays the screensaver, so half the display's frame rate is
-        // plenty, and it halves the GPU time. Waiting, paused and game-over
-        // screens barely move.
+        // The screensaver keeps to half the display's frame rate even when a
+        // person plays it, which halves the GPU time; physics runs at its
+        // fixed 120 Hz regardless. Waiting, paused and game-over screens
+        // barely move.
         if screensaver || !game.is_live() {
             // Miniquad 0.4.11 cannot wake a blocked X11 event loop from a
             // timer. A short idle sleep also keeps theme polling and save
@@ -623,6 +622,9 @@ mod tests {
             KeyCode::Down,
             KeyCode::P,
             KeyCode::M,
+            // Enter plays again after a crash, as in the game
+            KeyCode::Enter,
+            KeyCode::KpEnter,
         ] {
             let mut keys = Keys::default();
             keys.key_down(key, false);
@@ -630,9 +632,9 @@ mod tests {
         }
         for key in [
             KeyCode::Escape,
-            KeyCode::Enter,
             KeyCode::A,
             KeyCode::LeftSuper,
+            KeyCode::Tab,
         ] {
             let mut keys = Keys::default();
             keys.key_down(key, false);

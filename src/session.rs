@@ -1,5 +1,6 @@
 //! Bridges window frames and input events to fixed physics ticks.
 
+use crate::attract::Drive;
 use crate::autopilot;
 use crate::clock::{Clock, TICK};
 use crate::game::{Game, State};
@@ -28,6 +29,29 @@ impl Session {
         self.step(game, elapsed, false, |_, game, dt| {
             autopilot::input(game, dt)
         });
+    }
+
+    /// A screensaver frame, played by whoever the attract rules chose:
+    /// nobody, the autopilot (unpausing a run a person left paused) or the
+    /// person's keys.
+    pub fn screensaver(
+        &mut self,
+        game: &mut Game,
+        elapsed: f32,
+        drive: Drive,
+        input: Input,
+        pause: bool,
+    ) {
+        match drive {
+            Drive::Wait => self.advance(game, elapsed, Input::default(), false),
+            Drive::Autopilot { unpause } => {
+                if unpause {
+                    game.toggle_pause();
+                }
+                self.autoplay(game, elapsed);
+            }
+            Drive::Person => self.advance(game, elapsed, input, pause),
+        }
     }
 
     fn step(

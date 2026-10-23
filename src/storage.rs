@@ -59,14 +59,21 @@ impl ScoreSaver {
         }
     }
 
-    /// Saves the high score when it differs from the one on disk: higher
-    /// after a record, or zero after the player resets it.
+    /// Saves the high score when it differs from the one last saved: higher
+    /// after a record, or lower after the player resets it. A record is
+    /// first checked against the file, since a game window and the
+    /// screensaver can both be open: a higher score another one saved is
+    /// kept, not written over.
     ///
     /// Only the first failure in a row is returned, so a lasting problem such
     /// as a read-only data directory is reported once rather than on every
     /// retry.
     pub fn save_if_needed(&mut self, path: &Path, score: u32, now: f64) -> io::Result<()> {
         if score == self.saved || now < self.retry_at {
+            return Ok(());
+        }
+        if score > self.saved && load(path) >= score {
+            self.saved = score;
             return Ok(());
         }
         match save(path, score) {
@@ -159,6 +166,21 @@ mod tests {
         // A confirmed save is not repeated.
         saver.save_if_needed(&path, 200, 10.0).unwrap();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_record_does_not_write_over_a_higher_one_saved_meanwhile() {
+        let path = scratch("two-windows").join("high-score");
+        let mut window = ScoreSaver::new(500);
+        let mut screensaver = ScoreSaver::new(500);
+        screensaver.save_if_needed(&path, 900, 0.0).unwrap();
+        // the window's own record, lower than the screensaver's
+        window.save_if_needed(&path, 600, 1.0).unwrap();
+        assert_eq!(load(&path), 900);
+        // a higher one still goes in
+        window.save_if_needed(&path, 950, 2.0).unwrap();
+        assert_eq!(load(&path), 950);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
