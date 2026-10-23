@@ -172,6 +172,16 @@ struct Keys {
     other: bool,
 }
 
+/// Whether a frame keeps to the idle 30 FPS rather than the display's rate.
+/// The screensaver does while nobody plays it, which halves its GPU time:
+/// the autopilot needs no more. A person playing it gets the full rate, as
+/// in the game, since the cap would make every dodge show up to a frame
+/// late. Waiting, paused and game-over screens barely move, so they are
+/// capped everywhere. `pilot` is None outside the screensaver.
+fn capped(pilot: Option<attract::Pilot>, live: bool) -> bool {
+    !live || pilot.is_some_and(|p| p != attract::Pilot::Person)
+}
+
 /// The keys the game uses. In the screensaver they play, and any other key
 /// leaves it, as any key did before it could be played.
 fn is_game_key(key: KeyCode) -> bool {
@@ -511,11 +521,8 @@ impl Stage {
             self.muted && self.sounds.is_some(),
             now,
         );
-        // The screensaver keeps to half the display's frame rate even when a
-        // person plays it, which halves the GPU time; physics runs at its
-        // fixed 120 Hz regardless. Waiting, paused and game-over screens
-        // barely move.
-        if screensaver || !game.is_live() {
+        let pilot = screensaver.then_some(self.attract.pilot);
+        if capped(pilot, game.is_live()) {
             // Miniquad 0.4.11 cannot wake a blocked X11 event loop from a
             // timer. A short idle sleep also keeps theme polling and save
             // retries working, without a platform-specific wakeup thread.
@@ -612,6 +619,19 @@ mod tests {
         assert_eq!(args(&["--screensaver", "-h"]), Ok(Command::Help));
         assert_eq!(args(&["--version"]), Ok(Command::Version));
         assert!(args(&["--screen"]).is_err());
+    }
+
+    #[test]
+    fn only_a_person_playing_gets_the_full_frame_rate() {
+        use attract::Pilot;
+        // the game: full rate while running, capped otherwise
+        assert!(!capped(None, true));
+        assert!(capped(None, false));
+        // the screensaver: capped unless a person plays a live run
+        assert!(capped(Some(Pilot::Waiting), false));
+        assert!(capped(Some(Pilot::Autopilot), true));
+        assert!(!capped(Some(Pilot::Person), true));
+        assert!(capped(Some(Pilot::Person), false));
     }
 
     #[test]
