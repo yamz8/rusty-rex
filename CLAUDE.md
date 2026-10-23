@@ -36,6 +36,8 @@ up in the app launcher.
   sounds, the high score and the theme.
 - Game logic, no window or GL, unit tested:
   - `src/rex.rs` running, jumping and ducking physics.
+  - `src/runner.rs` who runs (the rex or the Omarchy runner): their sizes
+    and collision boxes.
   - `src/game.rs` states, scrolling, speed, spawning, collisions, score,
     night and sound events.
   - `src/obstacle.rs` cacti and pterodactyls, hitboxes, the seeded RNG.

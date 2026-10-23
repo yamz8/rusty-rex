@@ -64,7 +64,8 @@ Omarchy shows it as the screensaver while you're offline.
 ## Banner
 
 `rusty-rex --banner FILE` draws text art faintly in the sky above the
-playfield, in normal play and with `--screensaver`. The art is read as
+playfield, in normal play and with `--screensaver`. With `--banner`, the banner gets its own band at the top of
+the sky, and the clouds, moon and stars stay below it. The art is read as
 pixels, a 2×4 grid to a character: braille (`⣿`) lights its dots, and block
 characters (`█ ▀ ▄ ▌ ▐` and the quadrants `▘ ▝ ▖ ▗ ▚ ▞ ▙ ▛ ▜ ▟`) the parts
 they fill. So a logo drawn for a terminal, or made with

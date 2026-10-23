@@ -16,7 +16,7 @@
 - [x] Parity with Chrome's physics, obstacles, score, intro, restart and
       night sky; see [parity.md](parity.md)
 - [x] Draw on miniquad directly, silent screensaver without an audio stack
-- [ ] `--rex FILE`: swap the runner for half-block art, keeping the rex's
-      hitbox whatever is drawn
+- [x] `--runner omarchy`: the Omarchy logo on legs, playing as the rex
+- [ ] `--runner FILE`: a runner from block or braille art, playing as the rex
 - [ ] Memoise the autopilot's look-ahead if its CPU cost ever shows; it
       branches at every landing and obstacle, about 1% CPU in practice
