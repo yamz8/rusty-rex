@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-rex"
-version = "1.5.1"
+version = "1.6.0"
 dependencies = [
  "miniquad",
  "quad-snd",
