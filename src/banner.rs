@@ -49,6 +49,12 @@ fn cell(c: char) -> u8 {
 
 /// Builds a sprite from the art, or None if it has nothing to draw.
 pub fn parse(text: &str) -> Option<Sprite> {
+    pixels(text).map(|grid| Sprite::from_pixels(&grid))
+}
+
+/// The art's lit pixels, row by row and trimmed to them, or None if it has
+/// nothing to draw. Every row is as wide as the widest.
+pub fn pixels(text: &str) -> Option<Vec<Vec<bool>>> {
     let mut grid: Vec<Vec<bool>> = Vec::new();
     for line in text.lines() {
         let cells: Vec<u8> = line.chars().map(cell).collect();
@@ -76,17 +82,15 @@ pub fn parse(text: &str) -> Option<Sprite> {
         .iter()
         .filter_map(|row| row.iter().rposition(|&p| p))
         .max()?;
-
-    let rows: Vec<String> = grid
-        .iter()
-        .map(|row| {
-            (first_col..=last_col)
-                .map(|x| if row.get(x) == Some(&true) { '#' } else { '.' })
-                .collect()
-        })
-        .collect();
-    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
-    Some(Sprite::new(&rows))
+    Some(
+        grid.iter()
+            .map(|row| {
+                (first_col..=last_col)
+                    .map(|x| row.get(x) == Some(&true))
+                    .collect()
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]

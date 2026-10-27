@@ -18,6 +18,6 @@
 - [x] Draw on miniquad directly, silent screensaver without an audio stack
 - [x] `--runner omarchy`: the Omarchy logo on legs, playing as the rex
 - [x] A playable screensaver: waiting, attract mode, takeover at a jump
-- [ ] `--runner FILE`: a runner from block or braille art, playing as the rex
-- [ ] Memoise the autopilot's look-ahead if its CPU cost ever shows; it
-      branches at every landing and obstacle, about 1% CPU in practice
+- [x] `--runner FILE`: a runner from block or braille art, playing as the rex
+- [x] A cheaper autopilot: it skips the look-ahead when nothing is in reach,
+      so the whole screensaver takes under 1% of a core and needs no cache

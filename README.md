@@ -87,6 +87,12 @@ the Omarchy logo's square with two eyes, on legs, in Omi's shapes. It plays
 just as the rex does, with boxes traced from its own shape, and works with
 `--screensaver`.
 
+`rusty-rex --runner FILE` runs as the block or braille art in FILE, the same
+kind `--banner` reads, up to 48 characters wide and 24 lines tall. It is
+fitted into the rex's box, folds to half height to duck, and its collision
+boxes follow its outline. Art that can't be used gets a warning, and the rex
+runs instead.
+
 ## Build from source
 
 Rust comes from `omarchy install dev-env rust`.

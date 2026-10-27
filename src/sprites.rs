@@ -437,6 +437,16 @@ impl Sprite {
             runs: runs(rows),
         }
     }
+
+    /// A sprite from lit pixels, row by row, all rows as wide.
+    pub fn from_pixels(grid: &[Vec<bool>]) -> Self {
+        let rows: Vec<String> = grid
+            .iter()
+            .map(|row| row.iter().map(|&p| if p { '#' } else { '.' }).collect())
+            .collect();
+        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+        Self::new(&rows)
+    }
 }
 
 /// Every sprite the game draws. The art never changes, so it is split into

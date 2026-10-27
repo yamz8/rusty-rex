@@ -192,6 +192,20 @@ mod tests {
     }
 
     #[test]
+    fn survives_long_runs_as_runners_from_art() {
+        // Art fills the rex's whole box if it likes, with boxes that trace
+        // it closely, so the hardest shapes get the same five minutes, each
+        // on its own course.
+        for (i, runner) in crate::runner::test_arts().into_iter().enumerate() {
+            let seed = (i as u64 + 1) * 7919;
+            let mut game = Game::new(seed);
+            game.runner = runner;
+            autoplay(&mut game, 300.0);
+            assert_eq!(game.state, State::Running, "art {i} seed {seed} crashed");
+        }
+    }
+
+    #[test]
     fn jumps_again_on_landing_only_when_it_must() {
         // Chrome's gaps can be shorter than a jump, so taking off the tick
         // after landing is sometimes the only way through. When the next
@@ -226,8 +240,12 @@ mod tests {
         // or ducking into an obstacle on purpose. Starting some runs at top
         // speed tries the tightest margin, with pterodactyls flying fast.
         let mut clear = 0;
-        for runner in [crate::runner::Runner::Rex, crate::runner::Runner::Omarchy] {
-            for (seed, speed) in (1..=4).flat_map(|s| [(s, START_SPEED), (s, MAX_SPEED)]) {
+        // Runners from art get one course each, to keep the test quick.
+        let runners = [crate::runner::Runner::Rex, crate::runner::Runner::Omarchy];
+        let runners = runners.map(|r| (r, 4)).into_iter();
+        for (runner, seeds) in runners.chain(crate::runner::test_arts().into_iter().map(|r| (r, 1)))
+        {
+            for (seed, speed) in (1..=seeds).flat_map(|s| [(s, START_SPEED), (s, MAX_SPEED)]) {
                 let mut game = Game::new(seed);
                 game.runner = runner;
                 game.speed = speed;

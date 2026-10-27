@@ -119,4 +119,4 @@ left out on purpose; *extra* is Rusty Rex's own.
 | Right-to-left pages | Mirrors the canvas | — | skipped |
 | Screensaver | — | `--screensaver` waits to be played, plays by itself after 10 s, and hands over to a person at a jump; only a person's runs set the high score (`attract.rs`, `autopilot.rs`) | extra |
 | Banner | — | `--banner FILE` draws block or braille art in the sky (`banner.rs`) | extra |
-| Runner | — | `--runner omarchy` runs as the Omarchy logo on legs, playing exactly as the rex (`runner.rs`, `sprites.rs`) | extra |
+| Runner | — | `--runner omarchy` runs as the Omarchy logo on legs, and `--runner FILE` as block or braille art, both playing exactly as the rex (`runner.rs`, `sprites.rs`) | extra |

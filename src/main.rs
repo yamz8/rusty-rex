@@ -39,14 +39,15 @@ const SCREENSAVER_CLASS: &str = "org.omarchy.screensaver";
 const HELP: &str = "\
 Rusty Rex: the offline dinosaur runner, in Rust.
 
-Usage: rusty-rex [--screensaver] [--banner FILE] [--runner rex|omarchy]
+Usage: rusty-rex [--screensaver] [--banner FILE] [--runner rex|omarchy|FILE]
 
   --screensaver  Fullscreen and silent until M: Space plays, and after 10 s
                  it plays by itself; Esc or any other key leaves
   --banner FILE  Draw the block or braille art (█ ▀ ▄ ▌ ▐ ⣿) in FILE faintly
                  in the sky
-  --runner NAME  Who runs: rex (the default) or omarchy, the Omarchy logo
-                 on legs
+  --runner NAME  Who runs: rex (the default); omarchy, the Omarchy logo on
+                 legs; or the block or braille art in a file, up to 48
+                 characters wide and 24 lines tall
   -h, --help     Show this help
   -V, --version  Show the version
 
@@ -62,11 +63,18 @@ enum Mode {
     Screensaver,
 }
 
+/// Who `--runner` names: one of the built-in runners, or a file of art.
+#[derive(Debug, PartialEq, Eq)]
+enum RunnerChoice {
+    Named(runner::Runner),
+    Art(PathBuf),
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct Options {
     mode: Mode,
     banner: Option<PathBuf>,
-    runner: runner::Runner,
+    runner: RunnerChoice,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -80,7 +88,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
     let mut options = Options {
         mode: Mode::Play,
         banner: None,
-        runner: runner::Runner::Rex,
+        runner: RunnerChoice::Named(runner::Runner::Rex),
     };
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -91,10 +99,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
                 options.banner = Some(file.into());
             }
             "--runner" => {
+                // The names come first, so art in a file called rex or
+                // omarchy is given as ./rex.
                 options.runner = match args.next().as_deref() {
-                    Some("rex") => runner::Runner::Rex,
-                    Some("omarchy") => runner::Runner::Omarchy,
-                    _ => return Err("--runner needs rex or omarchy".to_owned()),
+                    Some("rex") => RunnerChoice::Named(runner::Runner::Rex),
+                    Some("omarchy") => RunnerChoice::Named(runner::Runner::Omarchy),
+                    Some(file) => RunnerChoice::Art(file.into()),
+                    None => return Err("--runner needs rex, omarchy or a file".to_owned()),
                 };
             }
             "-h" | "--help" => return Ok(Command::Help),
@@ -122,6 +133,30 @@ fn load_banner(path: &Path) -> Option<sprites::Sprite> {
         Err(e) => {
             eprintln!("rusty-rex: couldn't read banner {}: {e}", path.display());
             None
+        }
+    }
+}
+
+/// Makes the runner `--runner` chose. Art that can't be read or used is only
+/// worth a warning, as a banner's is: the rex runs instead, so the
+/// screensaver still starts.
+fn load_runner(choice: RunnerChoice) -> runner::Runner {
+    let path = match choice {
+        RunnerChoice::Named(runner) => return runner,
+        RunnerChoice::Art(path) => path,
+    };
+    let art = std::fs::read_to_string(&path)
+        .map_err(|e| format!("couldn't be read: {e}"))
+        .and_then(|text| runner::Art::new(&banner::pixels(&text).unwrap_or_default()));
+    match art {
+        // It lasts as long as the game does.
+        Ok(art) => runner::Runner::Art(Box::leak(Box::new(art))),
+        Err(e) => {
+            eprintln!(
+                "rusty-rex: runner {} {e}; the rex runs instead",
+                path.display()
+            );
+            runner::Runner::Rex
         }
     }
 }
@@ -361,7 +396,7 @@ fn main() {
         std::process::exit(1);
     };
     let banner = options.banner.as_deref().and_then(load_banner);
-    let (mode, runner) = (options.mode, options.runner);
+    let (mode, runner) = (options.mode, load_runner(options.runner));
     miniquad::start(window_conf(backend, mode), move || {
         Box::new(Stage::new(mode, runner, banner))
     });
@@ -597,7 +632,7 @@ mod tests {
             Ok(Command::Run(Options {
                 mode,
                 banner: banner.map(PathBuf::from),
-                runner: runner::Runner::Rex,
+                runner: RunnerChoice::Named(runner::Runner::Rex),
             }))
         };
         assert_eq!(args(&[]), run(Mode::Play, None));
@@ -612,13 +647,44 @@ mod tests {
             Ok(Command::Run(Options {
                 mode: Mode::Play,
                 banner: None,
-                runner: runner::Runner::Omarchy,
+                runner: RunnerChoice::Named(runner::Runner::Omarchy),
             }))
         );
-        assert!(args(&["--runner", "cat"]).is_err());
+        assert_eq!(
+            args(&["--runner", "cat.txt"]),
+            Ok(Command::Run(Options {
+                mode: Mode::Play,
+                banner: None,
+                runner: RunnerChoice::Art("cat.txt".into()),
+            }))
+        );
+        assert!(args(&["--runner"]).is_err());
         assert_eq!(args(&["--screensaver", "-h"]), Ok(Command::Help));
         assert_eq!(args(&["--version"]), Ok(Command::Version));
         assert!(args(&["--screen"]).is_err());
+    }
+
+    #[test]
+    fn a_runner_from_art_falls_back_to_the_rex_when_it_cant_be_used() {
+        let dir =
+            std::env::temp_dir().join(format!("rusty-rex-test-{}-runner", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str, text: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            RunnerChoice::Art(path)
+        };
+        let good = load_runner(file("good.txt", "▄█▄\n█ █"));
+        assert!(matches!(good, runner::Runner::Art(_)), "{good:?}");
+        let blank = load_runner(file("blank.txt", "just words"));
+        assert_eq!(blank, runner::Runner::Rex);
+        let huge = load_runner(file("huge.txt", &"█".repeat(49)));
+        assert_eq!(huge, runner::Runner::Rex);
+        let missing = load_runner(RunnerChoice::Art(dir.join("missing.txt")));
+        assert_eq!(missing, runner::Runner::Rex);
+        let named = load_runner(RunnerChoice::Named(runner::Runner::Omarchy));
+        assert_eq!(named, runner::Runner::Omarchy);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

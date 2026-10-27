@@ -8,7 +8,7 @@ use crate::gfx::{Color, Gfx};
 use crate::obstacle::{Kind, Obstacle};
 use crate::palette::{Palette, Rgb};
 use crate::rex::{Pose, STANDING_SIZE};
-use crate::runner::Runner;
+use crate::runner::{Art, Runner};
 use crate::sprites::{self, Legs, Sprite};
 use crate::view;
 
@@ -242,6 +242,7 @@ impl Renderer {
         match game.runner {
             Runner::Rex => rex(g, game, blink, &c),
             Runner::Omarchy => omarchy(g, game, blink, &c),
+            Runner::Art(art) => runner_art(g, game, art, &c),
         }
         self.score(g, game, &c);
 
@@ -578,6 +579,34 @@ fn omarchy(g: &mut Gfx, game: &Game, blink: bool, c: &Colors) {
         h,
         c.accent,
         eye,
+    );
+}
+
+/// A runner from art, drawn as the rex is but with one drawing for every
+/// pose: folded while ducking, and bobbing a pixel with each stride so it
+/// still looks like it runs. It has no eye to blink.
+fn runner_art(g: &mut Gfx, game: &Game, art: &Art, c: &Colors) {
+    let crashed = matches!(game.state, State::Over(_));
+    // a crash while ducking is drawn standing up, as the rex's is
+    let ducking = game.rex.pose == Pose::Ducking && !crashed;
+    let (sprite_art, pose) = if ducking {
+        (&art.ducking, Pose::Ducking)
+    } else {
+        (&art.standing, Pose::Running)
+    };
+    let (w, h) = game.runner.size(pose);
+    let striding =
+        game.state == State::Running && game.rex.pose == Pose::Running && game.rex.back_leg_up;
+    let bob = if striding { 1.0 } else { 0.0 };
+    sprite(
+        g,
+        sprite_art,
+        game.rex_x(),
+        top(game.rex.height + bob, h),
+        w,
+        h,
+        c.accent,
+        c.accent,
     );
 }
 
