@@ -9,3 +9,6 @@ The game is that project's design: the rex, the cacti and pterodactyls, the
 day and night cycle and the moon's phases, and the speeds, timings and scoring
 this program follows. Rusty Rex reimplements it in Rust and includes none of
 Chromium's source code.
+
+The Omarchy logo drawn by `--runner omarchy` belongs to the Omacom Foundation
+and isn't covered by the MIT License.

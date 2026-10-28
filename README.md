@@ -118,4 +118,4 @@ bin/install    # install as an Arch package (shows up in the app launcher)
 
 ## License
 
-[MIT](LICENSE). The game itself is Chrome's: see [NOTICE](NOTICE).
+[MIT](LICENSE). The game itself is Chrome's, and the Omarchy logo belongs to the Omacom Foundation: see [NOTICE](NOTICE).
